@@ -36,7 +36,7 @@ if [ -z "$AUDIOSOURCE_BOOTSTRAPPED" ] && ([ ! -d "desktop" ] || [ ! -d "assets" 
     
     echo "Found release: $LATEST_URL"
     curl -sSL "$LATEST_URL" -o "$TMP_DIR/release.tar.gz"
-    tar -xzf "$TMP_DIR/release.tar.gz" -C "$TMP_DIR"
+    tar -xzmf "$TMP_DIR/release.tar.gz" -C "$TMP_DIR"
     
     # Verify the extracted script exists before executing
     if [ ! -f "$TMP_DIR/audiosource-linux/install.sh" ]; then
