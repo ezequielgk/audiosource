@@ -162,7 +162,13 @@ class AudioSourceTUI:
                 elif c == ord('s') or c == ord('S'):
                     if not self._get_tray_pid():
                         self.log_queue.put("Starting Tray Icon in background...")
-                        subprocess.Popen([os.path.join(os.path.dirname(__file__), "tray.py")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.Popen(
+                            [os.path.join(os.path.dirname(__file__), "tray.py")], 
+                            stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, 
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True
+                        )
                         time.sleep(1)
                         self.tray_pid = self._get_tray_pid()
                     self._send_signal(signal.SIGUSR1)
