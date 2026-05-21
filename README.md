@@ -45,7 +45,7 @@ On your Linux PC:
 ### Automatic Installation (Recommended)
 You can download, extract, and launch the interactive installer automatically with a single command:
 ```console
-curl -sSL https://raw.githubusercontent.com/ezequielgk/audiosource/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/ezequielgk/audiosource/master/install.sh | bash
 ```
 
 ### Manual Installation
