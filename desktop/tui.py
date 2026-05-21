@@ -162,13 +162,25 @@ class AudioSourceTUI:
                 elif c == ord('s') or c == ord('S'):
                     if not self._get_tray_pid():
                         self.log_queue.put("Starting Tray Icon in background...")
-                        subprocess.Popen(
-                            [os.path.join(os.path.dirname(__file__), "tray.py")], 
-                            stdin=subprocess.DEVNULL,
-                            stdout=subprocess.DEVNULL, 
-                            stderr=subprocess.DEVNULL,
-                            start_new_session=True
-                        )
+                        
+                        # Pure POSIX double-fork daemonization (works on all UNIX/Linux without systemd dependencies)
+                        tray_path = os.path.join(os.path.dirname(__file__), "tray.py")
+                        pid = os.fork()
+                        if pid == 0:
+                            os.setsid()  # Create a new session
+                            if os.fork() == 0:
+                                # Redirect standard file descriptors
+                                devnull = os.open(os.devnull, os.O_RDWR)
+                                os.dup2(devnull, 0)
+                                os.dup2(devnull, 1)
+                                os.dup2(devnull, 2)
+                                os.close(devnull)
+                                os.execv(sys.executable, [sys.executable, tray_path])
+                            else:
+                                os._exit(0)
+                        else:
+                            os.waitpid(pid, 0)
+                            
                         time.sleep(1)
                         self.tray_pid = self._get_tray_pid()
                     self._send_signal(signal.SIGUSR1)

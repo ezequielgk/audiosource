@@ -81,7 +81,6 @@ class AudioSourceTray:
         menu.append(self.item_mute)
         
         menu.append(Gtk.SeparatorMenuItem())
-        
         item_quit = Gtk.MenuItem(label="Quit")
         item_quit.connect("activate", lambda w: self.on_quit())
         menu.append(item_quit)
@@ -212,6 +211,10 @@ def main():
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, lambda: app.on_start_audio() or True)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR2, lambda: app.on_stop() or True)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, lambda: app.on_quit() or False)
+    
+    # Ignore SIGHUP so closing terminal doesn't kill the tray
+    if hasattr(signal, 'SIGHUP'):
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
     
     app.log("Tray icon running in background (Audio stopped).")
     
