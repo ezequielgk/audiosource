@@ -2,7 +2,29 @@
 
 set -e
 
-cd "$(dirname "$0")"
+# Support for one-liner installation via `curl | bash`
+if [ ! -d "desktop" ] || [ ! -d "assets" ]; then
+    echo "=================================================="
+    echo " Audio Source Bootstrap Installer "
+    echo "=================================================="
+    echo "Downloading latest release from GitHub..."
+    TMP_DIR=$(mktemp -d)
+    
+    LATEST_URL=$(curl -sSL https://api.github.com/repos/ezequielgk/audiosource/releases/latest | grep "browser_download_url.*audiosource-linux.tar.gz" | cut -d '"' -f 4)
+    if [ -z "$LATEST_URL" ]; then
+        echo "Error: Could not find latest release. Please check GitHub or install manually."
+        exit 1
+    fi
+    
+    curl -sSL "$LATEST_URL" -o "$TMP_DIR/release.tar.gz"
+    tar -xzf "$TMP_DIR/release.tar.gz" -C "$TMP_DIR"
+    
+    # Delegate to the actual script inside the extracted release
+    exec bash "$TMP_DIR/audiosource-linux/install.sh" "$@"
+fi
+
+# Change to the script's directory (only applies when run from a local folder)
+cd "$(dirname "$0")" 2>/dev/null || true
 
 PREFIX="${PREFIX:-$HOME/.local}"
 INSTALL_DIR="$PREFIX/share/audiosource"

@@ -42,7 +42,14 @@ On your Android device:
 
 On your Linux PC:
 
-1. Download the `audiosource-linux.tar.gz` Linux client from the [latest release](https://github.com/gdzx/audiosource/releases/latest).
+### Automatic Installation (Recommended)
+You can download, extract, and launch the interactive installer automatically with a single command:
+```console
+$ curl -sSL https://raw.githubusercontent.com/ezequielgk/audiosource/main/install.sh | bash
+```
+
+### Manual Installation
+1. Download the `audiosource-linux.tar.gz` Linux client from the [latest release](https://github.com/ezequielgk/audiosource/releases/latest).
 2. Extract the archive and open a terminal inside the extracted directory.
 3. Run the interactive installer:
    ```console
