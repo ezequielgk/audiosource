@@ -82,6 +82,14 @@ The installed `audiosource` command also supports special arguments:
   ```console
   $ audiosource update
   ```
+- **Help**: Show available command line options:
+  ```console
+  $ audiosource --help
+  ```
+- **Version**: Show the current application version:
+  ```console
+  $ audiosource --version
+  ```
 
 ### Custom ASCII Art
 
