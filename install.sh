@@ -46,7 +46,7 @@ if [ -z "$AUDIOSOURCE_BOOTSTRAPPED" ] && ([ ! -d "desktop" ] || [ ! -d "assets" 
     
     # Delegate to the actual script inside the extracted release
     export AUDIOSOURCE_BOOTSTRAPPED=1
-    exec bash "$TMP_DIR/audiosource-linux/install.sh" "$@"
+    exec bash "$TMP_DIR/audiosource-linux/install.sh" "$@" < /dev/tty
 fi
 
 # Change to the script's directory (only applies when run from a local folder)
