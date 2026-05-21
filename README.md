@@ -42,23 +42,24 @@ On your Android device:
 
 On your Linux PC:
 
-1. Download the `audiosource` client script from the [latest
-   release](https://github.com/gdzx/audiosource/releases/latest) (look for a
-   file named `audiosource` in the assets section).
-2. Open a terminal in the downloads directory (or `cd` into it).
-3. Then make the script executable with `chmod a+x ./audiosource`.
+1. Download the `audiosource-linux.tar.gz` Linux client from the [latest release](https://github.com/gdzx/audiosource/releases/latest).
+2. Extract the archive and open a terminal inside the extracted directory.
+3. Run the interactive installer:
+   ```console
+   $ ./install.sh
+   ```
+   *The installer provides a menu to resolve dependencies (requires sudo), install the app locally, or uninstall it.*
 
 ## Usage
 
-### Desktop TUI & System Tray (Fork Feature)
+### Desktop TUI & System Tray
 
-This fork includes an interactive console and tray daemon:
+Once installed, you can launch the application from your desktop's application menu (search for **Audio Source**) or directly from any terminal:
 
-1. **Start the TUI & Tray:**
-   ```console
-   $ python3 desktop/tui.py
-   ```
-   This automatically launches the system tray icon and connects the terminal interface to it.
+```console
+$ audiosource
+```
+This automatically launches the system tray icon and connects the terminal interface to it.
 2. **Interactive Controls:**
    - **`[S] Start`**: Starts the audio forwarding.
    - **`[C] Stop`**: Stops the audio forwarding.
@@ -66,19 +67,20 @@ This fork includes an interactive console and tray daemon:
    - **`[M] Mute/Unmute`**: Toggles microphone mute.
    - **`[Q] Quit All`**: Exits the terminal interface, shuts down the system tray daemon, and stops audio forwarding.
 
----
-
 ### Command Line Interface (CLI)
 
-1. Connect your Android device to your PC via a USB cable. (Note that wireless
-   debugging should also work, at the cost of increased latency and jitter.)
-2. On your phone, allow USB debugging, if requested.
-3. In the terminal, run `./audiosource run`. This starts Audio Source and
-   immediately attempts to forward the microphone audio.
-4. On your phone, grant microphone/recording permissions, if requested.
-5. If the volume is too low, adjust it with `./audiosource volume 200%`
-   (replace `200%` with the desired level). You will likely need a volume
-   level higher than 100%.
+The installed `audiosource` command also supports special arguments:
+
+- **Update App**: Automatically download and install the latest version from GitHub:
+  ```console
+  $ audiosource update
+  ```
+
+### Custom ASCII Art
+
+You can personalize the TUI logo by replacing the default art:
+- Edit the file at `~/.config/audiosource/ascii.txt` and paste your custom text. The TUI will automatically center it and adjust the layout seamlessly.
+- Alternatively, use `~/.config/audiosource/config.json` with an `"ascii_art"` key.
 
 ## Troubleshooting
 

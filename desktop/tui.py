@@ -390,7 +390,60 @@ class AudioSourceTUI:
             
             time.sleep(1)
 
+def do_update():
+    import urllib.request
+    import json
+    import tempfile
+    import tarfile
+    import shutil
+
+    print("Checking for updates from GitHub...")
+    try:
+        url = "https://api.github.com/repos/ezequielgk/audiosource/releases/latest"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+        
+        assets = data.get("assets", [])
+        download_url = None
+        for asset in assets:
+            if asset["name"] == "audiosource-linux.tar.gz":
+                download_url = asset["browser_download_url"]
+                break
+        
+        if not download_url:
+            print("Could not find the release asset 'audiosource-linux.tar.gz'.")
+            return
+
+        print(f"Downloading latest release ({data.get('tag_name')})...")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tar_path = os.path.join(tmpdir, "release.tar.gz")
+            urllib.request.urlretrieve(download_url, tar_path)
+            
+            print("Extracting...")
+            with tarfile.open(tar_path, "r:gz") as tar:
+                tar.extractall(path=tmpdir)
+            
+            extracted_dir = os.path.join(tmpdir, "audiosource-linux")
+            if not os.path.exists(extracted_dir):
+                extracted_dir = tmpdir
+                
+            install_script = os.path.join(extracted_dir, "install.sh")
+            if os.path.exists(install_script):
+                print("Running installation script...")
+                subprocess.run(["bash", install_script, "--install"], cwd=extracted_dir)
+                print("Update complete!")
+            else:
+                print("Error: install.sh not found in the downloaded release.")
+                
+    except Exception as e:
+        print(f"Update failed: {e}")
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "update":
+        do_update()
+        sys.exit(0)
+        
     try:
         curses.wrapper(lambda stdscr: AudioSourceTUI(stdscr).run())
     except KeyboardInterrupt:
