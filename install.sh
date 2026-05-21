@@ -45,8 +45,6 @@ if [ -z "$AUDIOSOURCE_BOOTSTRAPPED" ] && ([ ! -d "desktop" ] || [ ! -d "assets" 
     fi
     
     # Delegate to the actual script inside the extracted release
-    # Set environment variable to prevent infinite bootstrap loop
-    export AUDIOSOURCE_BOOTSTRAPPED=1
     exec bash "$TMP_DIR/audiosource-linux/install.sh" "$@"
 fi
 
