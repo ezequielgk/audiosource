@@ -424,7 +424,10 @@ def do_update():
             
             print("Extracting...")
             with tarfile.open(tar_path, "r:gz") as tar:
-                tar.extractall(path=tmpdir)
+                if hasattr(tarfile, 'data_filter'):
+                    tar.extractall(path=tmpdir, filter="data")
+                else:
+                    tar.extractall(path=tmpdir)
             
             extracted_dir = os.path.join(tmpdir, "audiosource-linux")
             if not os.path.exists(extracted_dir):
@@ -447,10 +450,10 @@ def main():
         if arg == "update":
             do_update()
             sys.exit(0)
-        elif arg in ("-v", "--version"):
+        elif arg in ("-v", "--version", "version"):
             print(f"Audio Source Linux Client - v{__version__}")
             sys.exit(0)
-        elif arg in ("-h", "--help"):
+        elif arg in ("-h", "--help", "help"):
             print("Audio Source Linux Client")
             print("Usage: audiosource [OPTIONS]")
             print("")
