@@ -3,7 +3,8 @@
 set -e
 
 # Support for one-liner installation via `curl | bash`
-if [ ! -d "desktop" ] || [ ! -d "assets" ]; then
+# Use an environment variable to prevent infinite bootstrap loop
+if [ -z "$AUDIOSOURCE_BOOTSTRAPPED" ] && ([ ! -d "desktop" ] || [ ! -d "assets" ]); then
     echo "=================================================="
     echo " Audio Source Bootstrap Installer "
     echo "=================================================="
@@ -44,6 +45,8 @@ if [ ! -d "desktop" ] || [ ! -d "assets" ]; then
     fi
     
     # Delegate to the actual script inside the extracted release
+    # Set environment variable to prevent infinite bootstrap loop
+    export AUDIOSOURCE_BOOTSTRAPPED=1
     exec bash "$TMP_DIR/audiosource-linux/install.sh" "$@"
 fi
 
