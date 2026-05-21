@@ -20,6 +20,8 @@ import select
 import signal
 import sys
 
+__version__ = "1.0.1"
+
 import json
 
 ASCII_LOGO = " AudioSource TUI "
@@ -446,7 +448,7 @@ def main():
             do_update()
             sys.exit(0)
         elif arg in ("-v", "--version"):
-            print("Audio Source TUI (Linux Client)")
+            print(f"Audio Source Linux Client - v{__version__}")
             sys.exit(0)
         elif arg in ("-h", "--help"):
             print("Audio Source Linux Client")
