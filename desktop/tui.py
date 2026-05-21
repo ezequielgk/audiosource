@@ -206,21 +206,34 @@ class AudioSourceTUI:
         except curses.error:
             pass
 
-        logo_lines = ASCII_LOGO.strip().split('\n')
-        logo_height = len(logo_lines)
-        logo_start_y = 2
-        for i, line in enumerate(logo_lines):
-            try:
-                x = max(2, (self.max_x - len(line)) // 2)
-                self.stdscr.addstr(logo_start_y + i, x, line, curses.color_pair(3) | curses.A_BOLD)
-            except curses.error:
-                pass
+        logo_lines = [line.rstrip() for line in ASCII_LOGO.strip('\n').split('\n')]
+        
+        max_allowed_logo_height = self.max_y - 13
+        
+        if max_allowed_logo_height > 0:
+            logo_lines = logo_lines[:max_allowed_logo_height]
+            logo_height = len(logo_lines)
+            max_logo_width = max((len(line) for line in logo_lines), default=0)
+            
+            logo_start_x = max(2, (self.max_x - max_logo_width) // 2)
+            logo_start_y = 2
+            
+            for i, line in enumerate(logo_lines):
+                try:
+                    # Truncate horizontal to avoid wrapping errors
+                    display_line = line[:max(0, self.max_x - logo_start_x - 1)]
+                    self.stdscr.addstr(logo_start_y + i, logo_start_x, display_line, curses.color_pair(3) | curses.A_BOLD)
+                except curses.error:
+                    pass
+        else:
+            logo_height = 0
+            logo_start_y = 1
         
         log_start_y = logo_start_y + logo_height + 1
         log_end_y = self.max_y - 8
         try:
+            self.stdscr.hline(log_start_y - 1, 1, curses.ACS_HLINE, self.max_x - 2)
             self.stdscr.addstr(log_start_y - 1, 2, " Logs ", curses.A_BOLD | curses.color_pair(5))
-            self.stdscr.hline(log_start_y - 1, 8, curses.ACS_HLINE, self.max_x - 10)
         except curses.error:
             pass
         
