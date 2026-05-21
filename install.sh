@@ -9,15 +9,39 @@ if [ ! -d "desktop" ] || [ ! -d "assets" ]; then
     echo "=================================================="
     echo "Downloading latest release from GitHub..."
     TMP_DIR=$(mktemp -d)
+    trap "rm -rf $TMP_DIR" EXIT
     
-    LATEST_URL=$(curl -sSL https://api.github.com/repos/ezequielgk/audiosource/releases/latest | grep "browser_download_url.*audiosource-linux.tar.gz" | cut -d '"' -f 4)
-    if [ -z "$LATEST_URL" ]; then
-        echo "Error: Could not find latest release. Please check GitHub or install manually."
+    # Fetch the latest release info
+    RELEASE_JSON=$(curl -sSL https://api.github.com/repos/ezequielgk/audiosource/releases/latest)
+    
+    # Debug: check if we got a valid response
+    if echo "$RELEASE_JSON" | grep -q "message.*API rate limit"; then
+        echo "Error: GitHub API rate limit exceeded. Please try again later or install manually."
         exit 1
     fi
     
+    # Try to find the Linux release file
+    LATEST_URL=$(echo "$RELEASE_JSON" | grep "browser_download_url.*audiosource-linux.tar.gz" | head -1 | cut -d '"' -f 4)
+    
+    if [ -z "$LATEST_URL" ]; then
+        echo "Error: Could not find audiosource-linux.tar.gz in latest release."
+        echo "Available assets:"
+        echo "$RELEASE_JSON" | grep "browser_download_url" | cut -d '"' -f 4
+        echo ""
+        echo "Please check GitHub or install manually from:"
+        echo "https://github.com/ezequielgk/audiosource/releases/latest"
+        exit 1
+    fi
+    
+    echo "Found release: $LATEST_URL"
     curl -sSL "$LATEST_URL" -o "$TMP_DIR/release.tar.gz"
     tar -xzf "$TMP_DIR/release.tar.gz" -C "$TMP_DIR"
+    
+    # Verify the extracted script exists before executing
+    if [ ! -f "$TMP_DIR/audiosource-linux/install.sh" ]; then
+        echo "Error: install.sh not found in extracted release."
+        exit 1
+    fi
     
     # Delegate to the actual script inside the extracted release
     exec bash "$TMP_DIR/audiosource-linux/install.sh" "$@"
@@ -151,8 +175,8 @@ show_menu() {
         read -p "Select an option [1-4]: " option
         
         case $option in
-            1) install_app ;;
-            2) uninstall_app ;;
+            1) install_app; break ;;
+            2) uninstall_app; break ;;
             3) install_deps ;;
             4) echo "Exiting."; exit 0 ;;
             *) echo "Invalid option. Please try again." ;;
