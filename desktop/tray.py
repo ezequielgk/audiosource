@@ -28,7 +28,7 @@ class AudioSourceTray:
     """
     def __init__(self):
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.icon_path = os.path.join(self.script_dir, "assets", "icon.svg")
+        self.icon_path = os.path.join(os.path.dirname(self.script_dir), "assets", "icon.svg")
         
         # Expose PID to allow the TUI frontend to send signals (SIGUSR1, SIGTERM, etc.)
         with open(PID_FILE, "w") as f:

@@ -1,5 +1,10 @@
 # Audio Source
 
+> [!NOTE]
+> **This is a fork** that adds a Terminal User Interface (TUI) and a System Tray icon for easier control of the application. It works directly with the official APK provided by the original creator, [gdzx](https://github.com/gdzx), without requiring you to install any custom or modified APK.
+
+![screenshot](assets/screenshot-tui.png)
+
 Audio Source forwards Android microphone audio input to the PulseAudio daemon
 through ADB, so you can use your Android device as a USB microphone.
 
@@ -44,6 +49,26 @@ On your Linux PC:
 3. Then make the script executable with `chmod a+x ./audiosource`.
 
 ## Usage
+
+### Desktop TUI & System Tray (Fork Feature)
+
+This fork includes an interactive console and tray daemon:
+
+1. **Start the TUI & Tray:**
+   ```console
+   $ python3 desktop/tui.py
+   ```
+   This automatically launches the system tray icon and connects the terminal interface to it.
+2. **Interactive Controls:**
+   - **`[S] Start`**: Starts the audio forwarding.
+   - **`[C] Stop`**: Stops the audio forwarding.
+   - **`[T] Hide to Tray`**: Closes the terminal interface but keeps the system tray daemon and audio forwarding running in the background.
+   - **`[M] Mute/Unmute`**: Toggles microphone mute.
+   - **`[Q] Quit All`**: Exits the terminal interface, shuts down the system tray daemon, and stops audio forwarding.
+
+---
+
+### Command Line Interface (CLI)
 
 1. Connect your Android device to your PC via a USB cable. (Note that wireless
    debugging should also work, at the cost of increased latency and jitter.)
