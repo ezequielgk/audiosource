@@ -440,9 +440,25 @@ def do_update():
         print(f"Update failed: {e}")
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "update":
-        do_update()
-        sys.exit(0)
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        if arg == "update":
+            do_update()
+            sys.exit(0)
+        elif arg in ("-v", "--version"):
+            print("Audio Source TUI (Linux Client)")
+            sys.exit(0)
+        elif arg in ("-h", "--help"):
+            print("Audio Source Linux Client")
+            print("Usage: audiosource [OPTIONS]")
+            print("")
+            print("Options:")
+            print("  -h, --help       Show this help message and exit")
+            print("  -v, --version    Show version information and exit")
+            print("  update           Download and install the latest release from GitHub")
+            print("")
+            print("Running 'audiosource' without arguments will launch the Terminal User Interface.")
+            sys.exit(0)
         
     try:
         curses.wrapper(lambda stdscr: AudioSourceTUI(stdscr).run())
