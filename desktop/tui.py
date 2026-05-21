@@ -20,12 +20,36 @@ import select
 import signal
 import sys
 
-ASCII_LOGO_FILE = os.path.join(os.path.dirname(__file__), "ascii.txt")
+import json
+
+ASCII_LOGO = " AudioSource TUI "
+USER_CONFIG_DIR = os.path.expanduser("~/.config/audiosource")
+USER_ASCII_TXT = os.path.join(USER_CONFIG_DIR, "ascii.txt")
+USER_CONFIG_JSON = os.path.join(USER_CONFIG_DIR, "config.json")
+BUNDLE_ASCII_TXT = os.path.join(os.path.dirname(__file__), "ascii.txt")
+
 try:
-    with open(ASCII_LOGO_FILE, "r", encoding="utf-8") as f:
-        ASCII_LOGO = f.read()
-except FileNotFoundError:
-    ASCII_LOGO = " AudioSource TUI "
+    if os.path.exists(USER_CONFIG_JSON):
+        with open(USER_CONFIG_JSON, "r", encoding="utf-8") as f:
+            config = json.load(f)
+            if "ascii_art" in config:
+                ASCII_LOGO = config["ascii_art"]
+except Exception:
+    pass
+
+if ASCII_LOGO == " AudioSource TUI ":
+    try:
+        with open(USER_ASCII_TXT, "r", encoding="utf-8") as f:
+            ASCII_LOGO = f.read()
+    except Exception:
+        pass
+
+if ASCII_LOGO == " AudioSource TUI ":
+    try:
+        with open(BUNDLE_ASCII_TXT, "r", encoding="utf-8") as f:
+            ASCII_LOGO = f.read()
+    except Exception:
+        pass
 
 def get_audiosource_name(serial=None):
     """
