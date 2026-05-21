@@ -1,0 +1,39 @@
+name: Release Audio Source Client
+
+on:
+  push:
+    tags:
+      - 'v*' 
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write 
+      
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Prepare Linux Client Package
+        run: |
+          # Create a staging directory
+          mkdir -p package/audiosource-linux
+          
+          # Copy all necessary files and directories
+          cp -r desktop package/audiosource-linux/
+          cp -r assets package/audiosource-linux/
+          cp -r install.sh package/audiosource-linux/
+          
+          # Create the tarball
+          cd package
+          tar -czvf audiosource-linux.tar.gz audiosource-linux/
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: package/audiosource-linux.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false
