@@ -2,54 +2,68 @@
 
 set -e
 
+REPO="ezequielgk/audiosource"
+
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+info()    { echo -e "${CYAN}  →${NC} $1"; }
+success() { echo -e "${GREEN}  ✔${NC} $1"; }
+error()   { echo -e "${RED}  ✘${NC} $1"; }
+title()   { echo -e "\n${BOLD}$1${NC}"; }
+
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+run_privileged() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    elif command_exists sudo; then
+        sudo "$@"
+    else
+        error "Root privileges are required to install dependencies (sudo not found)."
+        return 1
+    fi
+}
+
 # Support for one-liner installation via `curl | bash`
-# Use an environment variable to prevent infinite bootstrap loop
 if [ -z "$AUDIOSOURCE_BOOTSTRAPPED" ] && ([ ! -d "desktop" ] || [ ! -d "assets" ]); then
-    echo "=================================================="
-    echo " Audio Source Bootstrap Installer "
-    echo "=================================================="
-    echo "Downloading latest release from GitHub..."
+    title "Audio Source Bootstrap Installer"
+    info "Downloading latest release from GitHub..."
     TMP_DIR=$(mktemp -d)
     trap "rm -rf $TMP_DIR" EXIT
     
-    # Fetch the latest release info
-    RELEASE_JSON=$(curl -sSL https://api.github.com/repos/ezequielgk/audiosource/releases/latest)
-    
-    # Debug: check if we got a valid response
+    RELEASE_JSON=$(curl -sSL https://api.github.com/repos/$REPO/releases/latest)
     if echo "$RELEASE_JSON" | grep -q "message.*API rate limit"; then
-        echo "Error: GitHub API rate limit exceeded. Please try again later or install manually."
+        error "GitHub API rate limit exceeded. Please try again later or install manually."
         exit 1
     fi
     
-    # Try to find the Linux release file
     LATEST_URL=$(echo "$RELEASE_JSON" | grep "browser_download_url.*audiosource-linux.tar.gz" | head -1 | cut -d '"' -f 4)
-    
     if [ -z "$LATEST_URL" ]; then
-        echo "Error: Could not find audiosource-linux.tar.gz in latest release."
-        echo "Available assets:"
-        echo "$RELEASE_JSON" | grep "browser_download_url" | cut -d '"' -f 4
-        echo ""
-        echo "Please check GitHub or install manually from:"
-        echo "https://github.com/ezequielgk/audiosource/releases/latest"
+        error "Could not find audiosource-linux.tar.gz in latest release."
         exit 1
     fi
     
-    echo "Found release: $LATEST_URL"
+    info "Found release: $LATEST_URL"
     curl -sSL "$LATEST_URL" -o "$TMP_DIR/release.tar.gz"
     tar -xzmf "$TMP_DIR/release.tar.gz" -C "$TMP_DIR"
     
-    # Verify the extracted script exists before executing
     if [ ! -f "$TMP_DIR/audiosource-linux/install.sh" ]; then
-        echo "Error: install.sh not found in extracted release."
+        error "install.sh not found in extracted release."
         exit 1
     fi
     
-    # Delegate to the actual script inside the extracted release
     export AUDIOSOURCE_BOOTSTRAPPED=1
     exec bash "$TMP_DIR/audiosource-linux/install.sh" "$@" < /dev/tty
 fi
 
-# Change to the script's directory (only applies when run from a local folder)
+# Change to the script's directory
 cd "$(dirname "$0")" 2>/dev/null || true
 
 PREFIX="${PREFIX:-$HOME/.local}"
@@ -57,37 +71,92 @@ INSTALL_DIR="$PREFIX/share/audiosource"
 BIN_DIR="$PREFIX/bin"
 DESKTOP_DIR="$PREFIX/share/applications"
 
+install_deps() {
+    title "Checking system dependencies..."
+    local missing=()
+    
+    # Check commands
+    command_exists adb || missing+=("android-tools")
+    command_exists pactl || missing+=("pulseaudio-utils")
+    command_exists python3 || missing+=("python3")
+    
+    if [ "${#missing[@]}" -gt 0 ] || ! python3 -c 'import gi' 2>/dev/null; then
+        info "Attempting to install missing dependencies..."
+        if command_exists apt-get; then
+            run_privileged apt-get update && run_privileged apt-get install -y android-tools-adb pulseaudio-utils python3 python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
+        elif command_exists pacman; then
+            run_privileged pacman -Sy --needed --noconfirm android-tools libpulse python python-gobject gtk3 libayatana-appindicator
+        elif command_exists dnf; then
+            run_privileged dnf install -y android-tools pulseaudio-utils python3 python3-gobject gtk3 libayatana-appindicator
+        else
+            error "Could not detect package manager. Please install dependencies manually."
+            return 1
+        fi
+        success "Dependencies installed."
+    else
+        success "All required dependencies are already installed."
+    fi
+}
+
+setup_path() {
+    # If BIN_DIR is not in PATH, add it
+    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+        title "Configuring PATH..."
+        local path_line="export PATH=\"\$PATH:$BIN_DIR\""
+        local fish_path_line="fish_add_path $BIN_DIR"
+        local updated=false
+
+        local shell_files=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.profile")
+        
+        for file in "${shell_files[@]}"; do
+            if [ -f "$file" ]; then
+                if ! grep -q "$BIN_DIR" "$file"; then
+                    echo -e "\n# Audio Source\n$path_line" >> "$file"
+                    updated=true
+                fi
+            fi
+        done
+
+        if [ -d "$HOME/.config/fish" ]; then
+            local fish_conf="$HOME/.config/fish/config.fish"
+            mkdir -p "$(dirname "$fish_conf")"
+            if ! grep -q "$BIN_DIR" "$fish_conf" 2>/dev/null; then
+                echo -e "\n# Audio Source\n$fish_path_line" >> "$fish_conf"
+                updated=true
+            fi
+        fi
+
+        if [ "$updated" = true ]; then
+            success "PATH configured successfully."
+            echo -e "${YELLOW}${BOLD}⚠ IMPORTANT:${NC} Restart your terminal or run: ${CYAN}source ~/.bashrc${NC}"
+        else
+            info "PATH is already configured."
+        fi
+    fi
+}
+
 install_app() {
-    echo "Installing Audio Source to $INSTALL_DIR..."
+    title "Installing Audio Source..."
+    install_deps || exit 1
 
-    mkdir -p "$INSTALL_DIR"
-    mkdir -p "$BIN_DIR"
-    mkdir -p "$DESKTOP_DIR"
-
-    echo "Copying files..."
+    info "Copying files to $INSTALL_DIR..."
+    mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$DESKTOP_DIR"
     cp -r desktop assets "$INSTALL_DIR/"
 
-    CONFIG_DIR="$HOME/.config/audiosource"
+    local CONFIG_DIR="$HOME/.config/audiosource"
     mkdir -p "$CONFIG_DIR"
     if [ ! -f "$CONFIG_DIR/ascii.txt" ]; then
-        echo "Creating default ASCII configuration in $CONFIG_DIR/ascii.txt..."
+        info "Creating default ASCII configuration..."
         cp "$INSTALL_DIR/desktop/ascii.txt" "$CONFIG_DIR/ascii.txt"
     fi
 
-    chmod +x "$INSTALL_DIR/desktop/tui.py"
-    chmod +x "$INSTALL_DIR/desktop/tray.py"
+    chmod +x "$INSTALL_DIR/desktop/tui.py" "$INSTALL_DIR/desktop/tray.py" "$INSTALL_DIR/desktop/launcher.sh"
 
-    echo "Creating executable wrapper in $BIN_DIR/audiosource..."
-    cat << 'EOF' > "$BIN_DIR/audiosource"
-#!/bin/bash
-# Wrapper to launch the Audio Source TUI
-exec python3 "INSTALL_DIR_PLACEHOLDER/desktop/tui.py" "$@"
-EOF
-
-    sed -i "s|INSTALL_DIR_PLACEHOLDER|$INSTALL_DIR|g" "$BIN_DIR/audiosource"
+    info "Setting up executable wrapper..."
+    cp "$INSTALL_DIR/desktop/launcher.sh" "$BIN_DIR/audiosource"
     chmod +x "$BIN_DIR/audiosource"
 
-    echo "Creating desktop entry..."
+    info "Creating desktop entry..."
     cat << EOF > "$DESKTOP_DIR/audiosource.desktop"
 [Desktop Entry]
 Name=Audio Source
@@ -99,94 +168,68 @@ Type=Application
 Categories=AudioVideo;Audio;
 EOF
 
-    if command -v update-desktop-database > /dev/null; then
-        update-desktop-database "$DESKTOP_DIR" || true
+    if command_exists update-desktop-database; then
+        update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
     fi
 
-    echo ""
-    echo "=================================================="
-    echo "Installation complete!"
-    echo "=================================================="
-    echo "You can now launch the app from your application menu as 'Audio Source',"
-    echo "or by running 'audiosource' in your terminal."
-    echo ""
+    success "Installation complete!"
+    setup_path
 }
 
 uninstall_app() {
-    echo "Uninstalling Audio Source..."
+    title "Uninstalling Audio Source..."
     
+    local removed=false
     if [ -d "$INSTALL_DIR" ]; then
-        echo "Removing $INSTALL_DIR..."
         rm -rf "$INSTALL_DIR"
+        removed=true
     fi
-    
     if [ -f "$BIN_DIR/audiosource" ]; then
-        echo "Removing executable $BIN_DIR/audiosource..."
         rm -f "$BIN_DIR/audiosource"
+        removed=true
     fi
-    
     if [ -f "$DESKTOP_DIR/audiosource.desktop" ]; then
-        echo "Removing desktop entry $DESKTOP_DIR/audiosource.desktop..."
         rm -f "$DESKTOP_DIR/audiosource.desktop"
-        if command -v update-desktop-database > /dev/null; then
-            update-desktop-database "$DESKTOP_DIR" || true
+        if command_exists update-desktop-database; then
+            update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
         fi
+        removed=true
     fi
     
-    echo "=================================================="
-    echo "Uninstallation complete."
-    echo "=================================================="
-    echo ""
-}
-
-install_deps() {
-    echo "Attempting to install dependencies..."
-    if command -v apt &> /dev/null; then
-        echo "Detected Debian/Ubuntu base. Running apt..."
-        sudo apt update
-        sudo apt install -y android-tools-adb pulseaudio-utils python3 python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
-        echo "Dependencies installed."
-    elif command -v pacman &> /dev/null; then
-        echo "Detected Arch Linux base. Running pacman..."
-        sudo pacman -Sy --needed android-tools libpulse python python-gobject gtk3 libayatana-appindicator
-        echo "Dependencies installed."
-    elif command -v dnf &> /dev/null; then
-        echo "Detected Fedora/RHEL base. Running dnf..."
-        sudo dnf install -y android-tools pulseaudio-utils python3 python3-gobject gtk3 libayatana-appindicator
-        echo "Dependencies installed."
+    if [ "$removed" = true ]; then
+        success "Binaries and desktop entries removed."
     else
-        echo "Could not detect package manager."
-        echo "Please install these manually:"
-        echo " - adb (android-tools)"
-        echo " - pactl/parec (pulseaudio-utils)"
-        echo " - python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-ayatanaappindicator3-0.1"
+        error "Audio Source installation not found."
     fi
+}
+
+main_menu() {
+    clear
+    echo -e "${CYAN}${BOLD}AUDIO SOURCE INSTALLER${NC}"
     echo ""
+    echo "  Select an option:"
+    echo ""
+    echo -e "  ${CYAN}1)${NC} Install Audio Source"
+    echo -e "  ${CYAN}2)${NC} Uninstall Audio Source"
+    echo -e "  ${CYAN}3)${NC} Install System Dependencies"
+    echo -e "  ${CYAN}4)${NC} Exit"
+    echo ""
+    
+    read -rp "  Option [1-4]: " opcion < /dev/tty
+
+    case "$opcion" in
+        1) install_app ;;
+        2) uninstall_app ;;
+        3) install_deps ;;
+        4) exit 0 ;;
+        *) sleep 1; main_menu ;;
+    esac
+
+    echo ""
+    read -rp "  Press Enter to continue..." _ < /dev/tty
+    main_menu
 }
 
-show_menu() {
-    while true; do
-        echo "=================================================="
-        echo " Audio Source Installer Menu "
-        echo "=================================================="
-        echo "1) Install Audio Source"
-        echo "2) Uninstall Audio Source"
-        echo "3) Install System Dependencies (requires sudo)"
-        echo "4) Exit"
-        echo "=================================================="
-        read -p "Select an option [1-4]: " option
-        
-        case $option in
-            1) install_app; break ;;
-            2) uninstall_app; break ;;
-            3) install_deps ;;
-            4) echo "Exiting."; exit 0 ;;
-            *) echo "Invalid option. Please try again." ;;
-        esac
-    done
-}
-
-# If arguments are passed, allow CLI-style execution to skip the menu
 if [ "$1" == "--install" ]; then
     install_app
     exit 0
@@ -198,5 +241,4 @@ elif [ "$1" == "--deps" ]; then
     exit 0
 fi
 
-# Show menu by default
-show_menu
+main_menu
