@@ -98,6 +98,16 @@ def check_permissions(env):
             except subprocess.CalledProcessError:
                 pass
         
+        # Ensure AppOps is also granted (Fixes "App op 27 missing, silencing record" on MIUI/Android 11+)
+        if perm == "android.permission.RECORD_AUDIO":
+            try:
+                subprocess.run(
+                    ["adb", "shell", "appops", "set", AUDIOSOURCE_PKG, "RECORD_AUDIO", "allow"],
+                    env=env, check=False, capture_output=True
+                )
+            except Exception:
+                pass
+        
         if granted:
             print(f"{perm}: granted=true")
         else:
@@ -114,14 +124,18 @@ def start_forwarding(name, env):
     """Start the Android app and establish the ADB port forwarding for the audio socket."""
     print("[+] Starting Audio Source")
     try:
+        subprocess.run(["adb", "shell", "am", "force-stop", AUDIOSOURCE_PKG], env=env, check=False)
         subprocess.run(["adb", "shell", "am", "start", f"{AUDIOSOURCE_PKG}/.MainActivity"], env=env, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Wait for the app to initialize its LocalServerSocket to prevent premature connection leading to n=0 (Broken Pipe)
+        time.sleep(2)
     except subprocess.CalledProcessError:
         print("Error: Failed to start MainActivity via adb.")
         raise
     
-    print(f"[+] Forwarding audio to {name}")
     try:
-        subprocess.run(["adb", "forward", f"localabstract:{name}", "localabstract:audiosource"], env=env, check=True)
+        subprocess.run(["adb", "forward", f"localabstract:{name}", "localabstract:audiosource"], env=env, check=True, capture_output=True)
+        print(f"[+] Forwarding audio to {name}")
+        print("[!] ACTION REQUIRED: Tap the microphone icon on your Android device to start recording.")
     except subprocess.CalledProcessError:
         print("Error: Failed to forward adb port.")
         raise
@@ -138,40 +152,57 @@ def socat(sock_name, pipe_name):
         fcntl.F_SETPIPE_SZ = 1031
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(3.0)
     try:
         sock.connect('\0' + sock_name)
     except Exception as e:
         print(f"Error connecting to socket: {e}")
         return
 
-    with open(pipe_name, 'wb') as fifo:
-        buf = bytearray(BUF_SIZE)
+    try:
+        fd = os.open(pipe_name, os.O_WRONLY | os.O_NONBLOCK)
+    except OSError as e:
+        print(f"Error opening pipe: {e}")
+        return
+
+    buf = bytearray(BUF_SIZE)
+    try:
+        # Optimize buffer size for audio streaming throughput
+        fcntl.fcntl(fd, fcntl.F_SETPIPE_SZ, PIPE_SIZE)
+    except Exception:
+        pass
+
+    while True:
         try:
-            # Optimize buffer size for audio streaming throughput
-            fcntl.fcntl(fifo, fcntl.F_SETPIPE_SZ, PIPE_SIZE)
-        except Exception:
-            pass
+            n = sock.recv_into(buf, BUF_SIZE)
+        except Exception as e:
+            print(f"Socket error: {e}")
+            break
+
+        if n == 0:
+            break
+
+        # Check for pure silence (all zeroes)
+        if not any(buf[:n]):
+            if not hasattr(socat, 'silence_warnings'):
+                socat.silence_warnings = 0
+            socat.silence_warnings += 1
+            if socat.silence_warnings % 100 == 1:
+                print("WARNING: Receiving pure silence (0s) from Android! Microphone might be blocked by OS privacy settings.")
+        else:
+            if hasattr(socat, 'silence_warnings') and socat.silence_warnings > 0:
+                print("Audio signal detected!")
+                socat.silence_warnings = 0
+
+        try:
+            os.write(fd, buf[:n])
+        except BlockingIOError:
+            pass # Drop chunks if PulseAudio isn't reading fast enough to prevent desync
+        except Exception as e:
+            print(f"Write error: {e}")
+            break
             
-        flags = fcntl.fcntl(fifo, fcntl.F_GETFL)
-        fcntl.fcntl(fifo, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
-        while True:
-            try:
-                n = sock.recv_into(buf, BUF_SIZE, socket.MSG_WAITALL)
-            except Exception as e:
-                print(f"Socket error: {e}")
-                break
-
-            if n == 0:
-                break
-
-            try:
-                os.write(fifo.fileno(), buf[:n])
-            except BlockingIOError:
-                pass # Drop chunks if PulseAudio isn't reading fast enough to prevent desync
-            except Exception as e:
-                print(f"Write error: {e}")
-                break
+    os.close(fd)
 
 def run_command(args):
     """
@@ -213,8 +244,9 @@ def run_command(args):
             print("[+] Loading PulseAudio module")
             cmd = [
                 "pactl", "load-module", "module-pipe-source",
-                f"source_name={name}", "source_properties=device.description='AudioSource Microphone'",
-                "channels=1", "format=s16", "rate=44100", f"file={pipe_name}"
+                f"source_name={name}", 
+                "source_properties=device.description=AudioSource_Microphone device.class=sound device.icon_name=audio-input-microphone",
+                "channels=1", "format=s16le", "rate=44100", f"file={pipe_name}"
             ]
             subprocess.run(cmd, check=True)
 
@@ -268,6 +300,17 @@ def main():
 
     if not args.serial and "ANDROID_SERIAL" in os.environ:
         args.serial = os.environ["ANDROID_SERIAL"]
+        
+    if not args.serial:
+        # Fetch the default device serial safely even if multiple devices exist
+        try:
+            res = subprocess.run(["adb", "devices"], capture_output=True, text=True, check=True)
+            for line in res.stdout.splitlines()[1:]:
+                if "device" in line and "offline" not in line and "unauthorized" not in line:
+                    args.serial = line.split()[0]
+                    break
+        except Exception:
+            pass
 
     if args.command == "run":
         run_command(args)

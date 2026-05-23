@@ -19,8 +19,9 @@ import hashlib
 import select
 import signal
 import sys
+import re
 
-__version__ = "1.0.8"
+__version__ = "1.1.0"
 
 import json
 
@@ -56,14 +57,22 @@ if ASCII_LOGO == " AudioSource TUI ":
 def get_audiosource_name(serial=None):
     """
     Generate the expected PulseAudio source name.
-    
-    Must perfectly match the hashing algorithm used in audiosource.py
-    so the visualizer connects to the correct virtual microphone.
     """
-    serial_str = serial if serial else ""
-    if not serial_str and "ANDROID_SERIAL" in os.environ:
-        serial_str = os.environ["ANDROID_SERIAL"]
-    hash_str = hashlib.sha256(serial_str.encode()).hexdigest()[:7]
+    if not serial and "ANDROID_SERIAL" in os.environ:
+        serial = os.environ["ANDROID_SERIAL"]
+    if not serial:
+        try:
+            # Safely pick the first connected device even if there are multiple
+            res = subprocess.run(["adb", "devices"], capture_output=True, text=True, check=True)
+            for line in res.stdout.splitlines()[1:]:
+                if "device" in line and "offline" not in line and "unauthorized" not in line:
+                    serial = line.split()[0]
+                    break
+            if not serial:
+                serial = ""
+        except Exception:
+            serial = ""
+    hash_str = hashlib.sha256(serial.encode()).hexdigest()[:7]
     return os.environ.get("AUDIOSOURCE_NAME", f"android-{hash_str}")
 
 PID_FILE = "/tmp/audiosource_tray.pid"
@@ -80,9 +89,27 @@ class AudioSourceTUI:
         self.stdscr = stdscr
         self.log_queue = queue.Queue()
         self.logs = []
-        self.running_tui = True
-        self.parec_process = None
         self.volume_level = 0.0
+        self.parec_process = None
+        self.is_muted = False
+        self.mic_gain_volume = "100%"
+        self.saved_volume = "100%"
+        
+        # Load persisted config
+        try:
+            if os.path.exists(USER_CONFIG_JSON):
+                with open(USER_CONFIG_JSON, "r") as f:
+                    cfg = json.load(f)
+                    if "is_muted" in cfg:
+                        self.is_muted = cfg["is_muted"]
+                    if "saved_volume" in cfg:
+                        self.saved_volume = cfg["saved_volume"]
+                        if not self.is_muted:
+                            self.mic_gain_volume = self.saved_volume
+        except Exception:
+            pass
+            
+        self.running_tui = True
         self.tray_pid = self._get_tray_pid()
         
         curses.start_color()
@@ -103,6 +130,35 @@ class AudioSourceTUI:
             subprocess.Popen([os.path.join(os.path.dirname(__file__), "tray.py")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(1)
             self.tray_pid = self._get_tray_pid()
+
+    def _save_state(self):
+        try:
+            cfg = {}
+            if os.path.exists(USER_CONFIG_JSON):
+                with open(USER_CONFIG_JSON, "r") as f:
+                    cfg = json.load(f)
+            cfg["is_muted"] = getattr(self, 'is_muted', False)
+            cfg["saved_volume"] = getattr(self, 'saved_volume', "100%")
+            os.makedirs(os.path.dirname(USER_CONFIG_JSON), exist_ok=True)
+            with open(USER_CONFIG_JSON, "w") as f:
+                json.dump(cfg, f)
+        except Exception:
+            pass
+
+    def _update_mic_gain(self):
+        source_name = get_audiosource_name()
+        try:
+            res = subprocess.run(["pactl", "get-source-volume", source_name], capture_output=True, text=True)
+            match = re.search(r'(\d+)%', res.stdout)
+            if match:
+                new_vol = match.group(1) + "%"
+                if new_vol != self.mic_gain_volume:
+                    self.mic_gain_volume = new_vol
+                    if new_vol != "0%" and not getattr(self, 'is_muted', False):
+                        self.saved_volume = new_vol
+                        self._save_state()
+        except Exception:
+            pass
 
     def _get_tray_pid(self):
         """Check if the tray daemon is alive by testing signal 0 against its PID."""
@@ -196,13 +252,33 @@ class AudioSourceTUI:
                     source_name = get_audiosource_name()
                     try:
                         res = subprocess.run(["pactl", "get-source-volume", source_name], capture_output=True, text=True)
-                        # We use 0% volume instead of pactl mute because virtual pipes ignore standard mute flags
                         if " 0%" in res.stdout:
-                            subprocess.run(["pactl", "set-source-volume", source_name, "100%"])
-                            self.log_queue.put("Mic Unmuted (100%).")
+                            # It was muted, now restore to the saved volume
+                            subprocess.run(["pactl", "set-source-volume", source_name, getattr(self, 'saved_volume', "100%")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            self.is_muted = False
                         else:
-                            subprocess.run(["pactl", "set-source-volume", source_name, "0%"])
-                            self.log_queue.put("Mic Muted (0%).")
+                            # We are muting it. Make sure we save the CURRENT volume before mutating it to 0!
+                            self._update_mic_gain()
+                            subprocess.run(["pactl", "set-source-volume", source_name, "0%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            self.is_muted = True
+                        self._save_state()
+                        self._update_mic_gain()
+                    except Exception:
+                        pass
+                elif c == ord('x') or c == ord('X'):
+                    source_name = get_audiosource_name()
+                    try:
+                        subprocess.run(["pactl", "set-source-volume", source_name, "+5%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        if getattr(self, 'is_muted', False):
+                            self._save_mute_state(False)
+                        self._update_mic_gain()
+                    except Exception:
+                        pass
+                elif c == ord('z') or c == ord('Z'):
+                    source_name = get_audiosource_name()
+                    try:
+                        subprocess.run(["pactl", "set-source-volume", source_name, "-5%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        self._update_mic_gain()
                     except Exception:
                         pass
             except curses.error:
@@ -223,6 +299,31 @@ class AudioSourceTUI:
         title = " AudioSource TUI "
         try:
             self.stdscr.addstr(0, max(0, (self.max_x - len(title)) // 2), title, curses.A_BOLD | curses.color_pair(3) | curses.A_REVERSE)
+        except curses.error:
+            pass
+
+        is_connected = False
+        if not self._get_tray_pid():
+            status = " DAEMON OFFLINE "
+            color = curses.color_pair(2) | curses.A_REVERSE | curses.A_BOLD
+        else:
+            if getattr(self, 'is_muted', False):
+                status = " MICROPHONE MUTED "
+                is_connected = True
+                color = curses.color_pair(4) | curses.A_REVERSE | curses.A_BOLD # Typically yellow/orange or red
+            elif getattr(self, 'volume_level', 0) > 0.0 or (self.parec_process and self.parec_process.poll() is None):
+                status = " MICROPHONE ACTIVE "
+                is_connected = True
+                color = curses.color_pair(2) | curses.A_REVERSE | curses.A_BOLD # Green
+            else:
+                status = " DAEMON ACTIVE "
+                color = curses.color_pair(1) | curses.A_REVERSE | curses.A_BOLD
+
+        try:
+            self.stdscr.addstr(0, 2, status, color)
+            
+            version_str = f" v{__version__} "
+            self.stdscr.addstr(0, self.max_x - len(version_str) - 2, version_str, curses.A_BOLD | curses.color_pair(3) | curses.A_REVERSE)
         except curses.error:
             pass
 
@@ -304,13 +405,15 @@ class AudioSourceTUI:
             self.stdscr.hline(ctrl_y - 1, 1, curses.ACS_HLINE, self.max_x - 2)
         except curses.error:
             pass
+        if is_connected:
+            vol_text = f" [{getattr(self, 'mic_gain_volume', '100%')}] Vol "
+        else:
+            vol_text = " [Waiting for connection...] "
             
-        status = " DAEMON ACTIVE " if self._get_tray_pid() else " DAEMON OFFLINE "
-        color = curses.color_pair(1) | curses.A_REVERSE | curses.A_BOLD if self._get_tray_pid() else curses.color_pair(2) | curses.A_REVERSE | curses.A_BOLD
         try:
-            self.stdscr.addstr(ctrl_y, 2, status, color)
+            self.stdscr.addstr(ctrl_y, 2, vol_text, curses.color_pair(5) | curses.A_BOLD)
             
-            controls = "[S] Start  [R] Restart  [C] Stop  [M] Mute  [T] Hide  [Q] Quit All"
+            controls = "[S] Start  [R] Restart  [C] Stop  [M] Mute  [Z/X] Vol  [T] Hide  [Q] Quit"
             self.stdscr.addstr(ctrl_y, self.max_x - len(controls) - 2, controls, curses.A_BOLD)
         except curses.error:
             pass
@@ -370,6 +473,7 @@ class AudioSourceTUI:
                 fl = fcntl.fcntl(fd, fcntl.F_GETFL)
                 fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
+                self._mute_enforced = False
                 last_check = time.time()
                 while self.running_tui and self.parec_process.poll() is None:
                     # Periodically check if PulseAudio deleted our source underneath us
@@ -379,6 +483,15 @@ class AudioSourceTUI:
                             res = subprocess.run(["pactl", "list", "short", "sources"], capture_output=True, text=True)
                             if source_name not in res.stdout:
                                 break
+                            
+                            # Enforce persisted mute state on the OS source only once per connection
+                            if not getattr(self, '_mute_enforced', False):
+                                if hasattr(self, 'is_muted'):
+                                    vol = "0%" if self.is_muted else getattr(self, 'saved_volume', "100%")
+                                    subprocess.run(["pactl", "set-source-volume", source_name, vol], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                self._mute_enforced = True
+                            
+                            self._update_mic_gain()
                         except Exception:
                             pass
                         last_check = time.time()
