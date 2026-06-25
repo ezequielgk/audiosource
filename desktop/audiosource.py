@@ -39,16 +39,25 @@ def unload_module(name):
     Assumes PulseAudio might not be running or the module might already
     be unloaded. Fails silently to prevent crash loops during cleanup.
     """
-    try:
-        res = subprocess.run(["pactl", "list", "modules", "short"], capture_output=True, text=True, check=True)
-        for line in res.stdout.splitlines():
-            if "module-pipe-source" in line and f"source_name={name}" in line:
-                module_id = line.split()[0]
+    import time
+    for _ in range(3):
+        try:
+            res = subprocess.run(["pactl", "list", "modules", "short"], capture_output=True, text=True, check=True)
+            module_id = None
+            for line in res.stdout.splitlines():
+                if "module-pipe-source" in line and f"source_name={name}" in line:
+                    module_id = line.split()[0]
+                    break
+            if module_id:
                 subprocess.run(["pactl", "unload-module", module_id], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except subprocess.CalledProcessError:
-        pass # Ignore if PulseAudio is offline
-    except Exception as e:
-        print(f"Warning: Failed to unload module: {e}")
+                time.sleep(0.5)
+            else:
+                return
+        except subprocess.CalledProcessError:
+            return
+        except Exception as e:
+            print(f"Warning: Failed to unload module: {e}")
+            break
 
 def get_adb_env(serial):
     """Inject the specific Android serial into the environment for adb commands."""
@@ -273,16 +282,12 @@ def run_command(args):
         try:
             unload_module(name)
             
-            # Clean up stale pipes to prevent 'Invalid Argument' error from PulseAudio
+            # Clean up stale pipes
             if os.path.exists(pipe_name):
                 try:
-                    fd_test = os.open(pipe_name, os.O_WRONLY | os.O_NONBLOCK)
-                    os.close(fd_test)
+                    os.remove(pipe_name)
                 except OSError:
-                    try:
-                        os.remove(pipe_name)
-                    except OSError:
-                        pass
+                    pass
             
             print("[+] Loading PulseAudio module")
             cmd = [
