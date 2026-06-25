@@ -196,6 +196,9 @@ class AudioSourceTray:
         """
         tui_path = os.path.join(self.script_dir, "tui.py")
         terminals = [
+            ["foot", "-e"],
+            ["ghostty", "-e"],
+            ["kitty", "--"],
             ["x-terminal-emulator", "-e"],
             ["gnome-terminal", "--"],
             ["konsole", "-e"],
