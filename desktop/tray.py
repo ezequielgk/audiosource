@@ -48,7 +48,25 @@ class AudioSourceTray:
         self.indicator.set_menu(self.create_menu())
         
         self.process = None
+        self.process_watchdog_id = None
         self.muted = False
+        self.target_volume = "100%"
+        self.volume_watchdog_id = GLib.timeout_add_seconds(30, self._check_volume)
+
+    def _check_volume(self):
+        """Watchdog to ensure volume stays at self.target_volume."""
+        if not self.process:
+            return True
+            
+        source_name = self._get_source_name()
+        try:
+            res = subprocess.run(["pactl", "get-source-volume", source_name], capture_output=True, text=True)
+            if self.target_volume not in res.stdout:
+                self.log(f"Volume changed unexpectedly. Restoring to {self.target_volume}...")
+                subprocess.run(["pactl", "set-source-volume", source_name, self.target_volume])
+        except Exception:
+            pass
+        return True
 
     def log(self, msg):
         """Append a message to the shared log file for the TUI to read."""
@@ -119,6 +137,16 @@ class AudioSourceTray:
         # '-u' prevents Python from buffering stdout so logs appear in TUI instantly
         cmd = ["python3", "-u", os.path.join(self.script_dir, "audiosource.py"), "run", "-r"]
         self.process = subprocess.Popen(cmd, stdout=self.log_file, stderr=subprocess.STDOUT)
+        self.process_watchdog_id = GLib.timeout_add_seconds(2, self._check_process)
+
+    def _check_process(self):
+        """Watchdog to restart audiosource if it crashes silently."""
+        if self.process and self.process.poll() is not None:
+            self.log("audiosource process crashed. Restarting...")
+            self.process = None
+            self.on_start_audio()
+            return False
+        return True
 
     def on_stop(self):
         """Halt the audio stream gracefully."""
@@ -132,11 +160,18 @@ class AudioSourceTray:
         Ensures we don't leave orphaned module-pipe-source instances in PulseAudio
         which would otherwise block future connections with 'Invalid Argument'.
         """
+        if getattr(self, 'process_watchdog_id', None):
+            GLib.source_remove(self.process_watchdog_id)
+            self.process_watchdog_id = None
+            
         if self.process:
             self.log("Stopping audiosource process...")
             self.process.terminate()
             self.process.wait()
             self.process = None
+            
+        import time
+        time.sleep(0.5)
             
         source_name = self._get_source_name()
         try:
@@ -144,7 +179,11 @@ class AudioSourceTray:
             for line in res.stdout.splitlines():
                 if "module-pipe-source" in line and f"source_name={source_name}" in line:
                     module_id = line.split()[0]
-                    subprocess.run(["pactl", "unload-module", module_id], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    for _ in range(2):
+                        proc = subprocess.run(["pactl", "unload-module", module_id], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        if proc.returncode == 0:
+                            break
+                        time.sleep(1.0)
         except Exception:
             pass
 
@@ -184,10 +223,10 @@ class AudioSourceTray:
         self.muted = not self.muted
         widget.set_label("Unmute Mic" if self.muted else "Mute Mic")
         source_name = self._get_source_name()
-        vol = "0%" if self.muted else "100%"
+        self.target_volume = "0%" if self.muted else "100%"
         try:
-            subprocess.run(["pactl", "set-source-volume", source_name, vol])
-            self.log(f"Mic volume set to: {vol}")
+            subprocess.run(["pactl", "set-source-volume", source_name, self.target_volume])
+            self.log(f"Mic volume set to: {self.target_volume}")
         except Exception as e:
             self.log(f"Failed to mute/unmute: {e}")
 

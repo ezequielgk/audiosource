@@ -151,58 +151,91 @@ def socat(sock_name, pipe_name):
     if not hasattr(fcntl, 'F_SETPIPE_SZ'):
         fcntl.F_SETPIPE_SZ = 1031
 
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(3.0)
-    try:
-        sock.connect('\0' + sock_name)
-    except Exception as e:
-        print(f"Error connecting to socket: {e}")
-        return
-
-    try:
-        fd = os.open(pipe_name, os.O_WRONLY | os.O_NONBLOCK)
-    except OSError as e:
-        print(f"Error opening pipe: {e}")
-        return
-
-    buf = bytearray(BUF_SIZE)
-    try:
-        # Optimize buffer size for audio streaming throughput
-        fcntl.fcntl(fd, fcntl.F_SETPIPE_SZ, PIPE_SIZE)
-    except Exception:
-        pass
-
-    while True:
+    max_retries = 5
+    backoff = 0.5
+    
+    for attempt in range(max_retries):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(3.0)
         try:
-            n = sock.recv_into(buf, BUF_SIZE)
+            sock.connect('\0' + sock_name)
+        except (ConnectionRefusedError, FileNotFoundError, OSError) as e:
+            print(f"Error connecting to socket (attempt {attempt+1}/{max_retries}): {e}")
+            sock.close()
+            if attempt < max_retries - 1:
+                time.sleep(backoff)
+                backoff *= 1.5
+                continue
+            return
         except Exception as e:
-            print(f"Socket error: {e}")
-            break
-
-        if n == 0:
-            break
-
-        # Check for pure silence (all zeroes)
-        if not any(buf[:n]):
-            if not hasattr(socat, 'silence_warnings'):
-                socat.silence_warnings = 0
-            socat.silence_warnings += 1
-            if socat.silence_warnings % 100 == 1:
-                print("WARNING: Receiving pure silence (0s) from Android! Microphone might be blocked by OS privacy settings.")
-        else:
-            if hasattr(socat, 'silence_warnings') and socat.silence_warnings > 0:
-                print("Audio signal detected!")
-                socat.silence_warnings = 0
+            print(f"Error connecting to socket: {e}")
+            sock.close()
+            return
 
         try:
-            os.write(fd, buf[:n])
-        except BlockingIOError:
-            pass # Drop chunks if PulseAudio isn't reading fast enough to prevent desync
-        except Exception as e:
-            print(f"Write error: {e}")
-            break
+            fd = os.open(pipe_name, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError as e:
+            print(f"Error opening pipe: {e}")
+            sock.close()
+            return
+
+        buf = bytearray(BUF_SIZE)
+        try:
+            # Optimize buffer size for audio streaming throughput
+            fcntl.fcntl(fd, fcntl.F_SETPIPE_SZ, PIPE_SIZE)
+        except Exception:
+            pass
+
+        start_time = time.time()
+        retry_connection = False
+
+        try:
+            while True:
+                try:
+                    n = sock.recv_into(buf, BUF_SIZE)
+                except Exception as e:
+                    print(f"Socket error: {e}")
+                    break
+
+                if n == 0:
+                    if time.time() - start_time < 1.0:
+                        print(f"Connection closed immediately by Android app (attempt {attempt+1}/{max_retries}). Retrying...")
+                        retry_connection = True
+                    break
+
+                # Check for pure silence (all zeroes)
+                if not any(buf[:n]):
+                    if not hasattr(socat, 'silence_warnings'):
+                        socat.silence_warnings = 0
+                    socat.silence_warnings += 1
+                    if socat.silence_warnings % 100 == 1:
+                        print("WARNING: Receiving pure silence (0s) from Android! Microphone might be blocked by OS privacy settings.")
+                else:
+                    if hasattr(socat, 'silence_warnings') and socat.silence_warnings > 0:
+                        print("Audio signal detected!")
+                        socat.silence_warnings = 0
+
+                try:
+                    os.write(fd, buf[:n])
+                except BlockingIOError:
+                    pass # Drop chunks if PulseAudio isn't reading fast enough to prevent desync
+                except Exception as e:
+                    print(f"Write error: {e}")
+                    break
+        finally:
+            try:
+                os.write(fd, bytes(BUF_SIZE))
+            except Exception:
+                pass
+            os.close(fd)
+        sock.close()
+        
+        if retry_connection and attempt < max_retries - 1:
+            time.sleep(backoff)
+            backoff *= 1.5
+            continue
             
-    os.close(fd)
+        return
 
 def run_command(args):
     """
@@ -224,6 +257,12 @@ def run_command(args):
 
     def cleanup(signum=None, frame=None):
         unload_module(name)
+        time.sleep(0.5)
+        if os.path.exists(pipe_name):
+            try:
+                os.remove(pipe_name)
+            except OSError:
+                pass
         if signum:
             sys.exit(130)
 
@@ -237,9 +276,13 @@ def run_command(args):
             # Clean up stale pipes to prevent 'Invalid Argument' error from PulseAudio
             if os.path.exists(pipe_name):
                 try:
-                    os.remove(pipe_name)
+                    fd_test = os.open(pipe_name, os.O_WRONLY | os.O_NONBLOCK)
+                    os.close(fd_test)
                 except OSError:
-                    pass
+                    try:
+                        os.remove(pipe_name)
+                    except OSError:
+                        pass
             
             print("[+] Loading PulseAudio module")
             cmd = [
