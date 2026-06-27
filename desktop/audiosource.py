@@ -69,11 +69,22 @@ def get_adb_env(serial):
 def wait_for_device(env):
     """Block execution until the target Android device is connected via ADB."""
     print("[+] Waiting for device")
-    try:
-        subprocess.run(["adb", "wait-for-device"], env=env, check=True)
-    except subprocess.CalledProcessError:
-        print("Error: adb wait-for-device failed.")
-        sys.exit(1)
+    start_time = time.time()
+    while time.time() - start_time < 30:
+        elapsed = time.time() - start_time
+        print(f"[ADB] Waiting... {elapsed:.0f}s / 30s")
+        try:
+            res = subprocess.run(["adb", "get-state"], env=env, capture_output=True, text=True)
+            if "device" in res.stdout:
+                serial = env.get("ANDROID_SERIAL", "unknown")
+                print(f"[ADB] Device connected: {serial}")
+                return True
+        except Exception:
+            pass
+        time.sleep(1)
+    print("[ADB] Timeout reached, no device found after 30s")
+    print("Timeout: no ADB device found")
+    return False
 
 def check_permissions(env):
     """
@@ -164,6 +175,7 @@ def socat(sock_name, pipe_name):
     backoff = 0.5
     
     for attempt in range(max_retries):
+        print(f"[SOCAT] Attempt {attempt+1}/{max_retries} connecting to {sock_name}")
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(3.0)
         try:
@@ -196,21 +208,46 @@ def socat(sock_name, pipe_name):
             pass
 
         start_time = time.time()
+        last_check = time.time()
         retry_connection = False
+        first_chunk = True
 
         try:
             while True:
+                current_time = time.time()
+                if current_time - last_check > 5:
+                    try:
+                        res = subprocess.run(["pactl", "list", "modules", "short"], capture_output=True, text=True)
+                        if f"source_name={sock_name}" not in res.stdout:
+                            print("[PIPEWIRE] module-pipe-source disappeared, triggering restart")
+                            print("PipeWire module lost, restarting...")
+                            break
+                    except Exception:
+                        pass
+                    last_check = current_time
+
                 try:
-                    n = sock.recv_into(buf, BUF_SIZE)
+                    n = sock.recv_into(buf, len(buf))
+                except socket.timeout:
+                    continue
                 except Exception as e:
                     print(f"Socket error: {e}")
                     break
 
                 if n == 0:
                     if time.time() - start_time < 1.0:
+                        print("[SOCAT] Immediate disconnect, Android socket not ready, retrying...")
                         print(f"Connection closed immediately by Android app (attempt {attempt+1}/{max_retries}). Retrying...")
                         retry_connection = True
                     break
+
+                if n > 0 and first_chunk:
+                    print("[SOCAT] Streaming started")
+                    first_chunk = False
+                    
+                if n == len(buf) and len(buf) < 65536:
+                    buf = bytearray(len(buf) * 2)
+                    print(f"[SOCAT] Adaptive buffer increased to {len(buf)}")
 
                 # Check for pure silence (all zeroes)
                 if not any(buf[:n]):
@@ -298,7 +335,8 @@ def run_command(args):
             ]
             subprocess.run(cmd, check=True)
 
-            wait_for_device(env)
+            if not wait_for_device(env):
+                break
 
             if not check_permissions(env):
                 cleanup()

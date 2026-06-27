@@ -34,6 +34,18 @@ class AudioSourceTray:
         with open(PID_FILE, "w") as f:
             f.write(str(os.getpid()))
             
+        subprocess.run(["pkill", "-f", "parec --device="], check=False)
+        
+        self.device_label = None
+        try:
+            res = subprocess.run(["adb", "shell", "getprop", "ro.product.model"], capture_output=True, text=True)
+            if res.returncode == 0 and res.stdout.strip():
+                self._initial_model = res.stdout.strip()
+            else:
+                self._initial_model = "No device connected"
+        except Exception:
+            self._initial_model = "No device connected"
+            
         # Initialize log file. Truncating on startup ensures we don't leak space over time.
         with open(LOG_FILE, "w") as f:
             f.write("Tray Daemon Started.\n")
@@ -50,23 +62,25 @@ class AudioSourceTray:
         self.process = None
         self.process_watchdog_id = None
         self.muted = False
-        self.target_volume = "100%"
-        self.volume_watchdog_id = GLib.timeout_add_seconds(30, self._check_volume)
+        GLib.timeout_add_seconds(10, self._update_device_label)
 
-    def _check_volume(self):
-        """Watchdog to ensure volume stays at self.target_volume."""
-        if not self.process:
-            return True
-            
-        source_name = self._get_source_name()
+    def _update_device_label(self):
         try:
-            res = subprocess.run(["pactl", "get-source-volume", source_name], capture_output=True, text=True)
-            if self.target_volume not in res.stdout:
-                self.log(f"Volume changed unexpectedly. Restoring to {self.target_volume}...")
-                subprocess.run(["pactl", "set-source-volume", source_name, self.target_volume])
+            res = subprocess.run(["adb", "shell", "getprop", "ro.product.model"], capture_output=True, text=True)
+            if res.returncode == 0 and res.stdout.strip():
+                model = res.stdout.strip()
+            else:
+                model = "No device connected"
         except Exception:
-            pass
+            model = "No device connected"
+            
+        if self.device_label:
+            self.device_label.set_label(model)
+            self.log(f"[TRAY] Device label updated: {model}")
         return True
+
+    def _notify(self, title, body):
+        subprocess.run(["notify-send", "-a", "AudioSource", "-i", self.icon_path, title, body], check=False)
 
     def log(self, msg):
         """Append a message to the shared log file for the TUI to read."""
@@ -79,6 +93,12 @@ class AudioSourceTray:
     def create_menu(self):
         """Build the GTK menu for the tray icon."""
         menu = Gtk.Menu()
+        
+        self.device_label = Gtk.MenuItem(label=getattr(self, '_initial_model', "No device connected"))
+        self.device_label.set_sensitive(False)
+        menu.append(self.device_label)
+        
+        menu.append(Gtk.SeparatorMenuItem())
         
         item_open = Gtk.MenuItem(label="Open Console (TUI)")
         item_open.connect("activate", lambda w: self.on_open_tui())
@@ -137,12 +157,16 @@ class AudioSourceTray:
         # '-u' prevents Python from buffering stdout so logs appear in TUI instantly
         cmd = ["python3", "-u", os.path.join(self.script_dir, "audiosource.py"), "run", "-r"]
         self.process = subprocess.Popen(cmd, stdout=self.log_file, stderr=subprocess.STDOUT)
+        self.log(f"[TRAY] Spawned audiosource PID {self.process.pid}")
         self.process_watchdog_id = GLib.timeout_add_seconds(2, self._check_process)
+        self._notify("AudioSource", "Streaming started")
 
     def _check_process(self):
         """Watchdog to restart audiosource if it crashes silently."""
         if self.process and self.process.poll() is not None:
+            self.log(f"[TRAY] Process exited with code {self.process.poll()}, restarting")
             self.log("audiosource process crashed. Restarting...")
+            self._notify("AudioSource", "Connection lost — reconnecting...")
             self.process = None
             self.on_start_audio()
             return False
@@ -152,6 +176,7 @@ class AudioSourceTray:
         """Halt the audio stream gracefully."""
         self._stop_process()
         self.log("Stopped audiosource.")
+        self._notify("AudioSource", "Audio stopped")
 
     def _stop_process(self):
         """
@@ -165,6 +190,7 @@ class AudioSourceTray:
             self.process_watchdog_id = None
             
         if self.process:
+            self.log(f"[TRAY] Terminating PID {self.process.pid}")
             self.log("Stopping audiosource process...")
             self.process.terminate()
             self.process.wait()

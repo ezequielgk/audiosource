@@ -21,7 +21,7 @@ import signal
 import sys
 import re
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 import json
 
@@ -94,6 +94,9 @@ class AudioSourceTUI:
         self.is_muted = False
         self.mic_gain_volume = "100%"
         self.saved_volume = "100%"
+        self.status = "Idle"
+        self.log_lines = []
+        self.silence = False
         
         # Load persisted config
         try:
@@ -192,6 +195,7 @@ class AudioSourceTUI:
         
         threading.Thread(target=self._read_logs, daemon=True).start()
         threading.Thread(target=self._read_audio, daemon=True).start()
+        threading.Thread(target=self._poll_volume, daemon=True).start()
         
         while self.running_tui:
             if not self._get_tray_pid():
@@ -307,16 +311,13 @@ class AudioSourceTUI:
             status = " DAEMON OFFLINE "
             color = curses.color_pair(2) | curses.A_REVERSE | curses.A_BOLD
         else:
-            if getattr(self, 'is_muted', False):
-                status = " MICROPHONE MUTED "
-                is_connected = True
-                color = curses.color_pair(4) | curses.A_REVERSE | curses.A_BOLD # Typically yellow/orange or red
-            elif getattr(self, 'volume_level', 0) > 0.0 or (self.parec_process and self.parec_process.poll() is None):
-                status = " MICROPHONE ACTIVE "
-                is_connected = True
-                color = curses.color_pair(2) | curses.A_REVERSE | curses.A_BOLD # Green
+            status = f" Status: {self.status} "
+            is_connected = True
+            if self.status == "Error":
+                color = curses.color_pair(2) | curses.A_REVERSE | curses.A_BOLD
+            elif self.status == "Stopped":
+                color = curses.color_pair(4) | curses.A_REVERSE | curses.A_BOLD
             else:
-                status = " DAEMON ACTIVE "
                 color = curses.color_pair(1) | curses.A_REVERSE | curses.A_BOLD
 
         try:
@@ -354,11 +355,11 @@ class AudioSourceTUI:
         log_end_y = self.max_y - 8
         try:
             self.stdscr.hline(log_start_y - 1, 1, curses.ACS_HLINE, self.max_x - 2)
-            self.stdscr.addstr(log_start_y - 1, 2, " Logs ", curses.A_BOLD | curses.color_pair(5))
+            self.stdscr.addstr(log_start_y - 1, 2, "── Log ──", curses.A_BOLD | curses.color_pair(5))
         except curses.error:
             pass
         
-        for i, log in enumerate(self.logs[- (log_end_y - log_start_y + 1):]):
+        for i, log in enumerate(self.log_lines[-5:]):
             if log_start_y + i <= log_end_y:
                 try:
                     color = curses.color_pair(0)
@@ -380,7 +381,7 @@ class AudioSourceTUI:
         except curses.error:
             pass
             
-        bar_width = self.max_x - 18
+        bar_width = self.max_x - 25
         if bar_width > 0:
             filled = int(self.volume_level * bar_width)
             
@@ -397,6 +398,9 @@ class AudioSourceTUI:
                     else:
                         self.stdscr.addstr(vis_y, 9 + i, "░", curses.A_DIM)
                 self.stdscr.addstr(vis_y, 9 + bar_width, "║")
+                
+                if getattr(self, 'silence', False):
+                    self.stdscr.addstr(vis_y, 11 + bar_width, "[SILENCE]", curses.color_pair(2) | curses.A_BOLD)
             except curses.error:
                 pass
 
@@ -444,6 +448,38 @@ class AudioSourceTUI:
                     continue
                 self.log_queue.put(line.rstrip())
 
+    def _poll_volume(self):
+        last_2s_check = 0
+        while self.running_tui:
+            try:
+                if os.path.exists(LOG_FILE):
+                    with open(LOG_FILE, "r") as f:
+                        lines = f.readlines()
+                        if lines:
+                            last_line = lines[-1]
+                            new_status = self.status
+                            if "Waiting for device" in last_line:
+                                new_status = "Waiting for device..."
+                            elif "Forwarding audio" in last_line:
+                                new_status = "Streaming"
+                            elif "Restarting" in last_line:
+                                new_status = "Reconnecting..."
+                            elif "Stopped" in last_line:
+                                new_status = "Stopped"
+                            elif "Error" in last_line:
+                                new_status = "Error"
+                                
+                            if new_status != self.status:
+                                self.log_queue.put(f"[TUI] Status changed: {self.status} → {new_status}")
+                                self.status = new_status
+                            
+                            if time.time() - last_2s_check >= 2.0:
+                                self.log_lines = [line.strip() for line in lines[-5:]]
+                                last_2s_check = time.time()
+            except Exception:
+                pass
+            time.sleep(1)
+
     def _read_audio(self):
         """
         Background thread for live audio visualization.
@@ -475,6 +511,7 @@ class AudioSourceTUI:
 
                 self._mute_enforced = False
                 last_check = time.time()
+                self._silence_start = time.time()
                 while self.running_tui and self.parec_process.poll() is None:
                     # Periodically check if PulseAudio deleted our source underneath us
                     # (e.g. if the user pressed Stop).
@@ -512,6 +549,17 @@ class AudioSourceTUI:
                             pass
                     else:
                         self.volume_level = max(0.0, self.volume_level - 0.1)
+
+                    if self.volume_level < 0.01:
+                        if time.time() - self._silence_start > 3:
+                            if not self.silence:
+                                self.log_queue.put("[TUI] Silence detected")
+                            self.silence = True
+                    else:
+                        self._silence_start = time.time()
+                        if self.silence:
+                            self.log_queue.put("[TUI] Audio signal restored")
+                        self.silence = False
                         
             except Exception:
                 pass
