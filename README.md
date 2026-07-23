@@ -47,6 +47,11 @@ You can download, extract, and launch the interactive installer automatically wi
 ```console
 curl -sSL https://raw.githubusercontent.com/ezequielgk/audiosource/master/install.sh | bash
 ```
+For Void Musl
+
+```console
+curl -sSL https://raw.githubusercontent.com/ezequielgk/audiosource/master/install-void.sh | bash
+```
 
 ### Manual Installation
 1. Download the `audiosource-linux.tar.gz` Linux client from the [latest release](https://github.com/ezequielgk/audiosource/releases/latest).
