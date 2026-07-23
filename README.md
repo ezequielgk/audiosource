@@ -77,7 +77,16 @@ This automatically launches the system tray icon and connects the terminal inter
    - **`[C] Stop`**: Stops the audio forwarding.
    - **`[T] Hide to Tray`**: Closes the terminal interface but keeps the system tray daemon and audio forwarding running in the background.
    - **`[M] Mute/Unmute`**: Toggles microphone mute.
+   - **`[W] WiFi`**: Opens the Wireless Debugging menu to pair or connect to a device over Wi-Fi.
    - **`[Q] Quit All`**: Exits the terminal interface, shuts down the system tray daemon, and stops audio forwarding.
+
+### Wireless Debugging (Wi-Fi)
+
+You can use Audio Source without a USB cable by connecting over Wi-Fi natively from the interface. Press **`[W] WiFi`** inside the TUI to open the wireless menu:
+1. **Pair (Android 11+)**: Use this the first time to pair your phone. You will need to enter the pairing IP, Port, and the 6-digit Pairing Code provided by your phone's Developer Options.
+2. **Connect**: Use this to connect to an already paired device by entering its IP and Port.
+
+*Note: The audio stream is automatically buffered and optimized for Wi-Fi to prevent audio cutting and connection drops.*
 
 ### Command Line Interface (CLI)
 
