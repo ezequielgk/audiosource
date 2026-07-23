@@ -25,6 +25,7 @@ jobs:
           cp -r desktop package/audiosource-linux/
           cp -r assets package/audiosource-linux/
           cp install.sh package/audiosource-linux/
+          cp install-void.sh package/audiosource-linux/
           
           # Create standalone executable at the root of the tarball
           cp desktop/launcher.sh package/audiosource-linux/audiosource
