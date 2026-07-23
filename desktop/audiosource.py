@@ -18,8 +18,9 @@ import sys
 import time
 
 AUDIOSOURCE_PKG = 'fr.dzx.audiosource'
-PIPE_SIZE = 4096
-BUF_SIZE = 1024
+# Incrementamos el buffer para tolerar el jitter de Wi-Fi. 65536 bytes = ~700ms de buffer máximo.
+PIPE_SIZE = 65536 
+BUF_SIZE = 8192
 
 def get_audiosource_name(serial):
     """
@@ -35,21 +36,24 @@ def get_audiosource_name(serial):
 def unload_module(name):
     """
     Safely remove the virtual PulseAudio microphone.
-    
-    Assumes PulseAudio might not be running or the module might already
-    be unloaded. Fails silently to prevent crash loops during cleanup.
     """
     import time
     for _ in range(3):
         try:
             res = subprocess.run(["pactl", "list", "modules", "short"], capture_output=True, text=True, check=True)
-            module_id = None
+            modules_to_unload = []
             for line in res.stdout.splitlines():
-                if "module-pipe-source" in line and f"source_name={name}" in line:
-                    module_id = line.split()[0]
-                    break
-            if module_id:
-                subprocess.run(["pactl", "unload-module", module_id], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if "module-virtual-source" in line and f"source_name={name}" in line:
+                    modules_to_unload.append(line.split()[0])
+                elif "module-null-sink" in line and f"sink_name={name}_sink" in line:
+                    modules_to_unload.append(line.split()[0])
+                # Compatibilidad hacia atrás (limpiar pipes viejos)
+                elif "module-pipe-source" in line and f"source_name={name}" in line:
+                    modules_to_unload.append(line.split()[0])
+                    
+            if modules_to_unload:
+                for mod_id in modules_to_unload:
+                    subprocess.run(["pactl", "unload-module", mod_id], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 time.sleep(0.5)
             else:
                 return
@@ -161,16 +165,13 @@ def start_forwarding(name, env):
         raise
     time.sleep(1)
 
-def socat(sock_name, pipe_name):
+def socat(sock_name, name):
     """
-    Bridge the Android Unix socket to the local PulseAudio FIFO pipe.
+    Bridge the Android Unix socket to the native PulseAudio client.
     
     Reads raw audio chunks from the ADB-forwarded socket and writes them
-    non-blockingly to the pipe. This handles the actual audio streaming.
+    to pacat, which natively handles PulseAudio/Pipewire buffering to prevent crashes.
     """
-    if not hasattr(fcntl, 'F_SETPIPE_SZ'):
-        fcntl.F_SETPIPE_SZ = 1031
-
     max_retries = 5
     backoff = 0.5
     
@@ -193,20 +194,19 @@ def socat(sock_name, pipe_name):
             sock.close()
             return
 
+        cmd = [
+            "pacat", "--playback", "--device", f"{name}_sink", 
+            "--format=s16le", "--channels=1", "--rate=44100", 
+            "--latency-msec=300"
+        ]
         try:
-            fd = os.open(pipe_name, os.O_WRONLY | os.O_NONBLOCK)
-        except OSError as e:
-            print(f"Error opening pipe: {e}")
+            pacat_proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        except Exception as e:
+            print(f"Error starting pacat: {e}")
             sock.close()
             return
 
         buf = bytearray(BUF_SIZE)
-        try:
-            # Optimize buffer size for audio streaming throughput
-            fcntl.fcntl(fd, fcntl.F_SETPIPE_SZ, PIPE_SIZE)
-        except Exception:
-            pass
-
         start_time = time.time()
         last_check = time.time()
         retry_connection = False
@@ -218,9 +218,8 @@ def socat(sock_name, pipe_name):
                 if current_time - last_check > 5:
                     try:
                         res = subprocess.run(["pactl", "list", "modules", "short"], capture_output=True, text=True)
-                        if f"source_name={sock_name}" not in res.stdout:
-                            print("[PIPEWIRE] module-pipe-source disappeared, triggering restart")
-                            print("PipeWire module lost, restarting...")
+                        if f"sink_name={name}_sink" not in res.stdout:
+                            print("[PIPEWIRE] Sink disappeared, triggering restart")
                             break
                     except Exception:
                         pass
@@ -237,44 +236,40 @@ def socat(sock_name, pipe_name):
                 if n == 0:
                     if time.time() - start_time < 1.0:
                         print("[SOCAT] Immediate disconnect, Android socket not ready, retrying...")
-                        print(f"Connection closed immediately by Android app (attempt {attempt+1}/{max_retries}). Retrying...")
                         retry_connection = True
                     break
 
                 if n > 0 and first_chunk:
-                    print("[SOCAT] Streaming started")
+                    print("[SOCAT] Streaming started (Wi-Fi Optimized)")
                     first_chunk = False
                     
-                if n == len(buf) and len(buf) < 65536:
+                if n == len(buf) and len(buf) < 16384:
                     buf = bytearray(len(buf) * 2)
-                    print(f"[SOCAT] Adaptive buffer increased to {len(buf)}")
 
-                # Check for pure silence (all zeroes)
                 if not any(buf[:n]):
                     if not hasattr(socat, 'silence_warnings'):
                         socat.silence_warnings = 0
                     socat.silence_warnings += 1
                     if socat.silence_warnings % 100 == 1:
-                        print("WARNING: Receiving pure silence (0s) from Android! Microphone might be blocked by OS privacy settings.")
+                        print("WARNING: Receiving pure silence (0s) from Android!")
                 else:
                     if hasattr(socat, 'silence_warnings') and socat.silence_warnings > 0:
                         print("Audio signal detected!")
                         socat.silence_warnings = 0
 
                 try:
-                    os.write(fd, buf[:n])
-                except BlockingIOError:
-                    pass # Drop chunks if PulseAudio isn't reading fast enough to prevent desync
+                    pacat_proc.stdin.write(buf[:n])
+                    pacat_proc.stdin.flush()
                 except Exception as e:
-                    print(f"Write error: {e}")
+                    print(f"Write error to pacat: {e}")
                     break
         finally:
             try:
-                os.write(fd, bytes(BUF_SIZE))
+                pacat_proc.stdin.close()
+                pacat_proc.terminate()
             except Exception:
                 pass
-            os.close(fd)
-        sock.close()
+            sock.close()
         
         if retry_connection and attempt < max_retries - 1:
             time.sleep(backoff)
@@ -319,21 +314,23 @@ def run_command(args):
         try:
             unload_module(name)
             
-            # Clean up stale pipes
-            if os.path.exists(pipe_name):
-                try:
-                    os.remove(pipe_name)
-                except OSError:
-                    pass
-            
-            print("[+] Loading PulseAudio module")
-            cmd = [
-                "pactl", "load-module", "module-pipe-source",
-                f"source_name={name}", 
-                "source_properties=device.description=AudioSource_Microphone device.class=sound device.icon_name=audio-input-microphone",
-                "channels=1", "format=s16le", "rate=44100", f"file={pipe_name}"
+            print("[+] Loading PulseAudio modules (Wi-Fi Stable Mode)")
+            # 1. Crear un sink virtual (Playback)
+            cmd1 = [
+                "pactl", "load-module", "module-null-sink",
+                f"sink_name={name}_sink", 
+                "sink_properties=device.description=AudioSource_Buffer"
             ]
-            subprocess.run(cmd, check=True)
+            subprocess.run(cmd1, check=True)
+            
+            # 2. Exponer el sink monitor como un source (Micrófono)
+            cmd2 = [
+                "pactl", "load-module", "module-virtual-source",
+                f"source_name={name}", 
+                f"master={name}_sink.monitor",
+                "source_properties=device.description=AudioSource_Microphone device.class=sound device.icon_name=audio-input-microphone"
+            ]
+            subprocess.run(cmd2, check=True)
 
             if not wait_for_device(env):
                 break
@@ -344,7 +341,7 @@ def run_command(args):
 
             start_forwarding(name, env)
 
-            socat(name, pipe_name)
+            socat(name, name)
         except KeyboardInterrupt:
             cleanup()
             sys.exit(130)

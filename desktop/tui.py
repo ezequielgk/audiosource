@@ -184,6 +184,74 @@ class AudioSourceTUI:
             except OSError:
                 pass
 
+    def _show_input_dialog(self, title, prompt):
+        """Displays a modal dialog and waits for user input."""
+        self.stdscr.timeout(-1)
+        curses.echo()
+        curses.curs_set(1)
+        
+        h, w = 8, max(40, len(prompt) + 4)
+        y = max(0, (self.max_y - h) // 2)
+        x = max(0, (self.max_x - w) // 2)
+        
+        win = curses.newwin(h, w, y, x)
+        win.bkgd(' ', curses.color_pair(3) | curses.A_REVERSE)
+        win.box()
+        win.addstr(0, max(0, (w - len(title)) // 2), f" {title} ", curses.A_BOLD)
+        
+        lines = prompt.split('\n')
+        for i, line in enumerate(lines):
+            win.addstr(2 + i, 2, line)
+            
+        win.addstr(h - 2, 2, "> ")
+        win.refresh()
+        
+        user_input = ""
+        try:
+            raw = win.getstr(h - 2, 4, 30)
+            user_input = raw.decode('utf-8').strip()
+        except Exception:
+            pass
+            
+        del win
+        curses.noecho()
+        curses.curs_set(0)
+        self.stdscr.timeout(50)
+        self.stdscr.clear()
+        
+        return user_input
+
+    def _handle_wireless(self):
+        """Handles the WiFi adb connection/pairing flow."""
+        action = self._show_input_dialog("Wireless Debugging", "1. Connect (Conectar)\n2. Pair (Vincular)\nChoose option (1 or 2):")
+        
+        if action == "1":
+            ip_port = self._show_input_dialog("Connect", "Enter IP:PORT\n(e.g., 192.168.1.15:43000):")
+            if ip_port:
+                self.log_queue.put(f"[ADB] Connecting to {ip_port}...")
+                try:
+                    res = subprocess.run(["adb", "connect", ip_port], capture_output=True, text=True)
+                    for line in res.stdout.splitlines():
+                        self.log_queue.put(f"> {line}")
+                    for line in res.stderr.splitlines():
+                        self.log_queue.put(f"! {line}")
+                except Exception as e:
+                    self.log_queue.put(f"[Error] adb connect failed: {e}")
+        elif action == "2":
+            ip_port = self._show_input_dialog("Pair", "Enter Pair IP:PORT\n(e.g., 192.168.1.15:43000):")
+            if ip_port:
+                code = self._show_input_dialog("Pair Code", "Enter 6-digit Pairing Code:")
+                if code:
+                    self.log_queue.put(f"[ADB] Pairing with {ip_port}...")
+                    try:
+                        res = subprocess.run(["adb", "pair", ip_port, code], capture_output=True, text=True)
+                        for line in res.stdout.splitlines():
+                            self.log_queue.put(f"> {line}")
+                        for line in res.stderr.splitlines():
+                            self.log_queue.put(f"! {line}")
+                    except Exception as e:
+                        self.log_queue.put(f"[Error] adb pair failed: {e}")
+
     def run(self):
         """
         Main TUI loop.
@@ -285,6 +353,8 @@ class AudioSourceTUI:
                         self._update_mic_gain()
                     except Exception:
                         pass
+                elif c == ord('w') or c == ord('W'):
+                    self._handle_wireless()
             except curses.error:
                 pass
                 
@@ -417,7 +487,7 @@ class AudioSourceTUI:
         try:
             self.stdscr.addstr(ctrl_y, 2, vol_text, curses.color_pair(5) | curses.A_BOLD)
             
-            controls = "[S] Start  [R] Restart  [C] Stop  [M] Mute  [Z/X] Vol  [T] Hide  [Q] Quit"
+            controls = "[S] Start  [R] Restart  [C] Stop  [M] Mute  [W] WiFi  [Z/X] Vol  [T] Hide  [Q] Quit"
             self.stdscr.addstr(ctrl_y, self.max_x - len(controls) - 2, controls, curses.A_BOLD)
         except curses.error:
             pass
