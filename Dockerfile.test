@@ -1,0 +1,12 @@
+FROM ghcr.io/void-linux/void-linux:latest-musl
+
+# Actualizar el sistema base
+RUN xbps-install -Suy || true
+RUN xbps-install -Syu || true
+
+# Copiar tu proyecto actual
+WORKDIR /app
+COPY . /app
+
+# Testear tu script de instalación
+RUN ./install-void.sh --install

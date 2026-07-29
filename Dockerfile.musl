@@ -1,0 +1,31 @@
+FROM alpine:latest
+
+# Instalar dependencias esenciales de musl y compiladores
+RUN apk update && apk add --no-cache \
+    python3 \
+    py3-pip \
+    gcc \
+    musl-dev \
+    python3-dev \
+    gobject-introspection-dev \
+    cairo-dev \
+    pkgconfig \
+    gtk+3.0 \
+    gtk+3.0-dev \
+    bash \
+    patchelf \
+    libayatana-appindicator-dev
+
+# Configurar un entorno virtual de Python
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+
+# Instalar PyInstaller y las librerías gráficas
+RUN pip install --upgrade pip
+RUN pip install PyInstaller PyGObject
+
+WORKDIR /app
+COPY . /app
+
+# Generar el binario (Esto comprimirá python y el código en audiosource-musl)
+CMD ["pyinstaller", "--onefile", "--name", "audiosource-musl", "--hidden-import", "gi.repository.Gtk", "--hidden-import", "gi.repository.AyatanaAppIndicator3", "--paths", "desktop", "desktop/tui.py"]

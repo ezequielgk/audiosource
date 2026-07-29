@@ -9,3 +9,7 @@
 .externalNativeBuild
 .cxx
 /keystore.properties
+
+# Rust
+/desktop/target/
+**/*.rs.bk
