@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AudioSource Control</title>
+    <style>
+        :root {
+            --bg: #1a1b1c;
+            --bg-raised: #252627;
+            --border: #5a5b5c;
+            --text: #cdc5bd;
+            --text-dim: #a69d96;
+            --accent: #d1b394;
+            --accent-dim: #b59474;
+            --ok: #91ad83;
+            --danger: #db6d6d;
+            --mono: "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+            --sans: "IBM Plex Sans", "Inter", system-ui, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        button:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        .wrap {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 4rem 1.5rem 6rem;
+        }
+
+        header.top {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 3rem;
+            flex-wrap: wrap;
+        }
+
+        .brand {
+            font-family: var(--mono);
+            font-size: 0.95rem;
+            color: var(--text-dim);
+            letter-spacing: 0.02em;
+        }
+
+        .brand strong {
+            color: var(--text);
+        }
+
+        h1 {
+            font-family: var(--mono);
+            font-size: clamp(1.6rem, 4vw, 2.3rem);
+            font-weight: 600;
+            line-height: 1.3;
+            margin: 0 0 0.75rem;
+            letter-spacing: -0.01em;
+        }
+
+        h1 .prompt {
+            color: var(--accent);
+        }
+
+        .tagline {
+            color: var(--text-dim);
+            font-size: 1.05rem;
+            margin: 0 0 2.5rem;
+        }
+
+        /* Terminal window */
+        .term {
+            background: var(--bg-raised);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 20px 60px -30px rgba(0, 0, 0, 0.6);
+        }
+
+        .term-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.6rem 0.9rem;
+            background: #252627;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .term-bar-left {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--border);
+        }
+
+        .dot.active {
+            background: var(--ok);
+            box-shadow: 0 0 8px var(--ok);
+        }
+
+        .dot.muted {
+            background: var(--danger);
+            box-shadow: 0 0 8px var(--danger);
+        }
+
+        .term-title {
+            margin-left: 0.5rem;
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .timer {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .term-body {
+            padding: 0;
+            position: relative;
+            height: 150px;
+            background: #1a1b1c;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 3rem;
+        }
+
+        .btn.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .btn {
+            background: var(--bg-raised);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 0.9rem;
+            padding: 0.6rem 1.2rem;
+            cursor: pointer;
+            flex: 1;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            border-color: var(--accent-dim);
+        }
+
+        .btn.primary {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .btn.primary:hover {
+            background: #2a2520;
+        }
+
+        .btn.danger {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        .btn.danger:hover {
+            background: rgba(207, 79, 79, 0.1);
+        }
+
+        footer {
+            border-top: 1px solid var(--border);
+            padding-top: 1.5rem;
+            font-family: var(--mono);
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+
+        <header class="top">
+            <div class="brand"><strong>audiosource</strong> · agent</div>
+        </header>
+
+        <h1><span class="prompt">$</span> mic stream <span id="status-h1">--ready</span></h1>
+        <p class="tagline">AudioSource is waiting for a microphone connection. Tap below to start streaming raw PCM to your PC.</p>
+
+        <div class="term">
+            <div class="term-bar">
+                <div class="term-bar-left">
+                    <span class="dot" id="status-dot"></span><span class="dot"></span><span class="dot"></span>
+                    <span class="term-title" id="status-title">disconnected</span>
+                </div>
+                <div class="timer" id="timer">00:00:00</div>
+            </div>
+            <div class="term-body">
+                <canvas id="visualizer"></canvas>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn primary full-width" id="action-btn">start()</button>
+            <button class="btn" id="mute-btn" style="display: none;">mute()</button>
+            <button class="btn" id="voldn-btn" style="display: none;">vol(-)</button>
+            <button class="btn" id="volup-btn" style="display: none;">vol(+)</button>
+        </div>
+
+        <footer>
+            <span>target: pulseaudio</span>
+            <span id="vol-status">vol: 100%</span>
+            <span>protocol: websocket raw pcm</span>
+        </footer>
+
+    </div>
+
+    <script>
+        const actionBtn = document.getElementById('action-btn');
+        const muteBtn = document.getElementById('mute-btn');
+        const volDnBtn = document.getElementById('voldn-btn');
+        const volUpBtn = document.getElementById('volup-btn');
+        const statusDot = document.getElementById('status-dot');
+        const statusTitle = document.getElementById('status-title');
+        const statusH1 = document.getElementById('status-h1');
+        const timerEl = document.getElementById('timer');
+        const volStatus = document.getElementById('vol-status');
+        const canvas = document.getElementById('visualizer');
+        const ctx = canvas.getContext('2d');
+
+        let isStreaming = false;
+        let isMuted = false;
+        let gainValue = 1.0;
+        let ws = null;
+        let audioContext = null;
+        let mediaStream = null;
+        let sourceNode = null;
+        let gainNode = null;
+        let workletNode = null;
+        let analyzer = null;
+        
+        let startTime = 0;
+        let timerInterval = null;
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function updateTimer() {
+            const diff = Math.floor((Date.now() - startTime) / 1000);
+            const h = String(Math.floor(diff / 3600)).padStart(2, '0');
+            const m = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
+            const s = String(diff % 60).padStart(2, '0');
+            timerEl.textContent = `${h}:${m}:${s}`;
+        }
+
+        function drawVisualizer() {
+            if (!isStreaming || !analyzer) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                requestAnimationFrame(drawVisualizer);
+                return;
+            }
+
+            const bufferLength = analyzer.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyzer.getByteFrequencyData(dataArray);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const barWidth = (canvas.width / bufferLength) * 2.5;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                const barHeight = (dataArray[i] / 255) * canvas.height;
+                
+                ctx.fillStyle = isMuted ? '#a69d96' : '#d1b394';
+                ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+
+                x += barWidth + 1;
+            }
+
+            requestAnimationFrame(drawVisualizer);
+        }
+        drawVisualizer();
+
+        function updateVolumeDisplay() {
+            volStatus.textContent = `vol: ${Math.round(gainValue * 100)}%`;
+            if (gainNode) {
+                gainNode.gain.value = gainValue;
+            }
+        }
+
+        async function startStreaming() {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    } 
+                });
+                
+                audioContext = new AudioContext({ sampleRate: 44100 });
+                await audioContext.audioWorklet.addModule('/worklet.js');
+                
+                sourceNode = audioContext.createMediaStreamSource(mediaStream);
+                
+                // Add GainNode for volume control
+                gainNode = audioContext.createGain();
+                gainNode.gain.value = gainValue;
+
+                analyzer = audioContext.createAnalyser();
+                analyzer.fftSize = 64;
+                
+                workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
+                
+                // Route: Mic -> Gain -> Analyzer -> Worklet
+                sourceNode.connect(gainNode);
+                gainNode.connect(analyzer);
+                analyzer.connect(workletNode);
+                workletNode.connect(audioContext.destination);
+
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+                
+                ws.onopen = () => {
+                    isStreaming = true;
+                    isMuted = false;
+                    
+                    statusDot.className = 'dot active';
+                    statusTitle.textContent = 'live_stream';
+                    statusH1.textContent = '--live';
+                    
+                    actionBtn.textContent = 'stop()';
+                    actionBtn.className = 'btn danger';
+                    
+                    muteBtn.style.display = 'block';
+                    muteBtn.textContent = 'mute()';
+                    muteBtn.className = 'btn';
+                    
+                    volDnBtn.style.display = 'block';
+                    volUpBtn.style.display = 'block';
+                    
+                    startTime = Date.now();
+                    timerInterval = setInterval(updateTimer, 1000);
+
+                    workletNode.port.onmessage = (e) => {
+                        if (ws.readyState === WebSocket.OPEN && !isMuted) {
+                            ws.send(e.data);
+                        }
+                    };
+                };
+
+                ws.onclose = () => stopStreaming();
+                ws.onerror = (e) => stopStreaming();
+                
+            } catch (err) {
+                console.error("Error accessing mic:", err);
+                alert("Could not access microphone: " + err.message);
+            }
+        }
+
+        function stopStreaming() {
+            isStreaming = false;
+            clearInterval(timerInterval);
+            timerEl.textContent = '00:00:00';
+            
+            if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+            if (audioContext) audioContext.close();
+            if (ws) ws.close();
+            
+            statusDot.className = 'dot';
+            statusTitle.textContent = 'disconnected';
+            statusH1.textContent = '--ready';
+            
+            actionBtn.textContent = 'start()';
+            actionBtn.className = 'btn primary full-width';
+            
+            muteBtn.style.display = 'none';
+            volDnBtn.style.display = 'none';
+            volUpBtn.style.display = 'none';
+            isMuted = false;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        actionBtn.addEventListener('click', () => {
+            if (!isStreaming) startStreaming();
+            else stopStreaming();
+        });
+
+        muteBtn.addEventListener('click', () => {
+            if (!isStreaming) return;
+            isMuted = !isMuted;
+            
+            if (isMuted) {
+                muteBtn.textContent = 'unmute()';
+                muteBtn.className = 'btn primary';
+                statusDot.className = 'dot muted';
+                statusH1.textContent = '--muted';
+            } else {
+                muteBtn.textContent = 'mute()';
+                muteBtn.className = 'btn';
+                statusDot.className = 'dot active';
+                statusH1.textContent = '--live';
+            }
+        });
+
+        volDnBtn.addEventListener('click', () => {
+            gainValue = Math.max(0, gainValue - 0.2);
+            updateVolumeDisplay();
+        });
+
+        volUpBtn.addEventListener('click', () => {
+            gainValue = Math.min(3.0, gainValue + 0.2); // max 300%
+            updateVolumeDisplay();
+        });
+    </script>
+</body>
+
+</html>

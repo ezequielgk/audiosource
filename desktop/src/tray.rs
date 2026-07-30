@@ -1,7 +1,7 @@
 use anyhow::Result;
-use ksni::{Tray, TrayMethods, MenuItem, Icon};
+use ksni::{Tray, TrayMethods, MenuItem};
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+
 
 pub struct AudioSourceTray {
     pub muted: bool,
@@ -99,7 +99,7 @@ fn open_tui() {
     for term in terminals {
         let mut cmd = Command::new(term[0]);
         cmd.arg(term[1]).arg(&tui_path).arg("tui");
-        if let Ok(mut child) = cmd.spawn() {
+        if let Ok(_child) = cmd.spawn() {
             // Detach and let it run
             return;
         }
@@ -108,6 +108,9 @@ fn open_tui() {
 }
 
 pub fn run_tray() -> Result<()> {
+    let pid_file = crate::utils::get_log_file().parent().unwrap().join("tray.pid");
+    let _ = std::fs::write(&pid_file, std::process::id().to_string());
+
     let mut tray = AudioSourceTray {
         muted: false,
         device_name: "No device connected".into(),
@@ -121,7 +124,7 @@ pub fn run_tray() -> Result<()> {
         }
     }
 
-    let mut rt = tokio::runtime::Runtime::new()?;
+    let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         let handle = tray.spawn().await.unwrap();
         

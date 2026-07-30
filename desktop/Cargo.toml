@@ -13,3 +13,10 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 tokio = { version = "1.53.1", features = ["full"] }
+axum = { version = "0.7", features = ["ws"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+rcgen = "0.13"
+local-ip-address = "0.6"
+qrcode = "0.14"
+dirs = "5.0"
+futures-util = "0.3"

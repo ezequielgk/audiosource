@@ -4,6 +4,8 @@ use std::process::ExitCode;
 mod daemon;
 mod tui;
 mod tray;
+mod utils;
+mod web;
 
 #[derive(Parser)]
 #[command(name = "audiosource")]
@@ -34,6 +36,8 @@ enum Commands {
     Tui,
     /// Run the System Tray Daemon
     Tray,
+    /// Run the Web Server and print QR Code
+    Web,
 }
 
 fn main() -> ExitCode {
@@ -60,6 +64,12 @@ fn main() -> ExitCode {
         Some(Commands::Tray) => {
             if let Err(e) = tray::run_tray() {
                 eprintln!("Tray Error: {:?}", e);
+            }
+        }
+        Some(Commands::Web) => {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            if let Err(e) = rt.block_on(web::run_web_server()) {
+                eprintln!("Web Server Error: {:?}", e);
             }
         }
         None => {
