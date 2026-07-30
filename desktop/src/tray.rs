@@ -66,6 +66,11 @@ impl Tray for AudioSourceTray {
                     this.muted = !this.muted;
                     let vol = if this.muted { "0%" } else { "100%" };
                     let _ = crate::daemon::set_volume(None, vol);
+                    if this.muted {
+                        crate::utils::notify("AudioSource", "Microphone muted");
+                    } else {
+                        crate::utils::notify("AudioSource", "Microphone unmuted");
+                    }
                 }),
                 ..Default::default()
             }
