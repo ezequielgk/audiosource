@@ -9,7 +9,7 @@ mod web;
 
 #[derive(Parser)]
 #[command(name = "audiosource")]
-#[command(version = "1.2.0")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Audio Source Linux Client", long_about = None)]
 struct Cli {
     #[arg(short, long, help = "Use device with given serial (overrides $ANDROID_SERIAL)")]
