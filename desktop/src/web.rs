@@ -41,15 +41,19 @@ fn generate_or_load_certs() -> Result<(PathBuf, PathBuf)> {
     Ok((cert_path, key_path))
 }
 
-pub fn get_qr_string() -> Result<(String, String)> {
-    let ip = local_ip()?;
-    let url = format!("https://{}:8443", ip);
-    
-    let code = QrCode::new(url.as_bytes())?;
+pub fn generate_qr(text: &str) -> Result<String> {
+    let code = QrCode::new(text.as_bytes())?;
     let string = code.render::<char>()
         .quiet_zone(false)
         .module_dimensions(2, 1)
         .build();
+    Ok(string)
+}
+
+pub fn get_qr_string() -> Result<(String, String)> {
+    let ip = local_ip()?;
+    let url = format!("https://{}:8443", ip);
+    let string = generate_qr(&url)?;
         
     Ok((string, url))
 }
