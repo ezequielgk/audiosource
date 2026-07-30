@@ -38,6 +38,8 @@ enum Commands {
     Tray,
     /// Run the Web Server and print QR Code
     Web,
+    /// Automatically download and install the latest version from GitHub
+    Update,
 }
 
 fn main() -> ExitCode {
@@ -70,6 +72,16 @@ fn main() -> ExitCode {
             let rt = tokio::runtime::Runtime::new().unwrap();
             if let Err(e) = rt.block_on(web::run_web_server()) {
                 eprintln!("Web Server Error: {:?}", e);
+            }
+        }
+        Some(Commands::Update) => {
+            println!("Downloading and installing the latest version of Audio Source...");
+            let script = "curl -sSL https://raw.githubusercontent.com/ezequielgk/audiosource/master/install.sh | bash";
+            if let Ok(mut child) = std::process::Command::new("sh").arg("-c").arg(script).spawn() {
+                let _ = child.wait();
+            } else {
+                eprintln!("Failed to execute update script.");
+                return ExitCode::FAILURE;
             }
         }
         None => {

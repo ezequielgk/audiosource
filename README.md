@@ -14,11 +14,9 @@ through ADB, so you can use your Android device as a USB microphone.
 
 - Device with at least Android 4.0 (API level 14), but fully tested only on
   Android 10 (API level 29) so your mileage may vary.
-- GNU/Linux machine with:
   - Android SDK Platform Tools (requires `adb` in `PATH`).
   - PulseAudio or PipeWire with PulseAudio support (requires `pactl` in
     `PATH`).
-  - Python 3 (requires `python3` in `PATH`).
 
 ## Installation
 
@@ -75,16 +73,19 @@ This automatically launches the system tray icon and connects the terminal inter
 2. **Interactive Controls:**
    - **`[S] Start`**: Starts the audio forwarding.
    - **`[C] Stop`**: Stops the audio forwarding.
-   - **`[T] Hide to Tray`**: Closes the terminal interface but keeps the system tray daemon and audio forwarding running in the background.
-   - **`[M] Mute/Unmute`**: Toggles microphone mute.
-   - **`[W] WiFi`**: Opens the Wireless Debugging menu to pair or connect to a device over Wi-Fi.
+   - **`[T] Hide to Tray`**: Closes the terminal interface but keeps the system tray daemon and audio forwarding running in the background. (Integrates natively with Desktop Notifications).
+   - **`[M] Mute/Unmute`**: Toggles microphone mute instantly.
+   - **`[Z]/[X] Vol`**: Adjust microphone volume dynamically with instantaneous visual feedback.
+   - **`[W] Web`**: Launches a local web server to control audio and view a QR code (with direct URL). You can connect from any device on your network.
+   - **`[A] ADB`**: Opens the Wireless Debugging menu to pair or connect to a device over Wi-Fi, including a new **Pair via QR** option.
    - **`[Q] Quit All`**: Exits the terminal interface, shuts down the system tray daemon, and stops audio forwarding.
 
 ### Wireless Debugging (Wi-Fi)
 
-You can use Audio Source without a USB cable by connecting over Wi-Fi natively from the interface. Press **`[W] WiFi`** inside the TUI to open the wireless menu:
-1. **Pair (Android 11+)**: Use this the first time to pair your phone. You will need to enter the pairing IP, Port, and the 6-digit Pairing Code provided by your phone's Developer Options.
-2. **Connect**: Use this to connect to an already paired device by entering its IP and Port.
+You can use Audio Source without a USB cable by connecting over Wi-Fi natively from the interface. Press **`[A] ADB`** inside the TUI to open the wireless menu:
+1. **Connect**: Use this to connect to an already paired device by entering its IP and Port.
+2. **Pair (Android 11+)**: Enter the pairing IP, Port, and the 6-digit Pairing Code provided by your phone's Developer Options.
+3. **Pair via QR (Android 11+)**: The TUI spins up a native mDNS server and displays a QR code on your screen. Simply scan it from your phone's "Wireless Debugging -> Pair device with QR code" screen!
 
 *Note: The audio stream is automatically buffered and optimized for Wi-Fi to prevent audio cutting and connection drops.*
 
