@@ -43,7 +43,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'nightly' }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Nightly Build' }}
           files: package/audiosource-linux.tar.gz
           generate_release_notes: true
           draft: false
-          prerelease: false
+          prerelease: ${{ github.ref_type != 'tag' }}
