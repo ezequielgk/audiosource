@@ -45,7 +45,7 @@ You can download, extract, and launch the interactive installer automatically wi
 ```console
 curl -sSL https://raw.githubusercontent.com/ezequielgk/audiosource/master/install.sh | bash
 ```
-For Void Musl
+For Void 
 
 ```console
 curl -sSL https://raw.githubusercontent.com/ezequielgk/audiosource/master/install-void.sh | bash
