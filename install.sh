@@ -78,16 +78,15 @@ install_deps() {
     # Check commands
     command_exists adb || missing+=("android-tools")
     command_exists pactl || missing+=("pulseaudio-utils")
-    command_exists python3 || missing+=("python3")
     
-    if [ "${#missing[@]}" -gt 0 ] || ! python3 -c 'import gi' 2>/dev/null; then
+    if [ "${#missing[@]}" -gt 0 ]; then
         info "Attempting to install missing dependencies..."
         if command_exists apt-get; then
-            run_privileged apt-get update && run_privileged apt-get install -y android-tools-adb pulseaudio-utils python3 python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
+            run_privileged apt-get update && run_privileged apt-get install -y android-tools-adb pulseaudio-utils
         elif command_exists pacman; then
-            run_privileged pacman -Sy --needed --noconfirm android-tools libpulse python python-gobject gtk3 libayatana-appindicator
+            run_privileged pacman -Sy --needed --noconfirm android-tools libpulse
         elif command_exists dnf; then
-            run_privileged dnf install -y android-tools pulseaudio-utils python3 python3-gobject gtk3 libayatana-appindicator
+            run_privileged dnf install -y android-tools pulseaudio-utils
         else
             error "Could not detect package manager. Please install dependencies manually."
             return 1
@@ -141,19 +140,10 @@ install_app() {
 
     info "Copying files to $INSTALL_DIR..."
     mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$DESKTOP_DIR"
-    cp -r desktop assets "$INSTALL_DIR/"
-
-    local CONFIG_DIR="$HOME/.config/audiosource"
-    mkdir -p "$CONFIG_DIR"
-    if [ ! -f "$CONFIG_DIR/ascii.txt" ]; then
-        info "Creating default ASCII configuration..."
-        cp "$INSTALL_DIR/desktop/ascii.txt" "$CONFIG_DIR/ascii.txt"
-    fi
-
-    chmod +x "$INSTALL_DIR/desktop/tui.py" "$INSTALL_DIR/desktop/tray.py" "$INSTALL_DIR/desktop/launcher.sh"
+    cp -r assets "$INSTALL_DIR/"
 
     info "Setting up executable wrapper..."
-    cp "$INSTALL_DIR/desktop/launcher.sh" "$BIN_DIR/audiosource"
+    cp audiosource "$BIN_DIR/audiosource"
     chmod +x "$BIN_DIR/audiosource"
 
     info "Creating desktop entry..."

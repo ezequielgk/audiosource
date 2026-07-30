@@ -46,12 +46,11 @@ install_deps() {
     # Check commands
     command_exists adb || missing+=("android-tools")
     command_exists pactl || missing+=("pulseaudio-utils")
-    command_exists python3 || missing+=("python3")
     
-    if [ "${#missing[@]}" -gt 0 ] || ! python3 -c 'import gi' 2>/dev/null; then
+    if [ "${#missing[@]}" -gt 0 ]; then
         info "Attempting to install missing dependencies via xbps..."
         if command_exists xbps-install; then
-            run_privileged xbps-install -Sy python3 python3-gobject gtk+3 libayatana-appindicator android-tools pulseaudio-utils
+            run_privileged xbps-install -Sy android-tools pulseaudio-utils
         else
             error "xbps-install not found. This script is intended specifically for Void Linux."
             return 1
@@ -105,19 +104,10 @@ install_app() {
 
     info "Copying files to $INSTALL_DIR..."
     mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$DESKTOP_DIR"
-    cp -r desktop assets "$INSTALL_DIR/"
-
-    local CONFIG_DIR="$HOME/.config/audiosource"
-    mkdir -p "$CONFIG_DIR"
-    if [ ! -f "$CONFIG_DIR/ascii.txt" ]; then
-        info "Creating default ASCII configuration..."
-        cp "$INSTALL_DIR/desktop/ascii.txt" "$CONFIG_DIR/ascii.txt"
-    fi
-
-    chmod +x "$INSTALL_DIR/desktop/tui.py" "$INSTALL_DIR/desktop/tray.py" "$INSTALL_DIR/desktop/launcher.sh"
+    cp -r assets "$INSTALL_DIR/"
 
     info "Setting up executable wrapper..."
-    cp "$INSTALL_DIR/desktop/launcher.sh" "$BIN_DIR/audiosource"
+    cp audiosource "$BIN_DIR/audiosource"
     chmod +x "$BIN_DIR/audiosource"
 
     info "Creating desktop entry..."

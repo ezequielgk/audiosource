@@ -16,20 +16,25 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        
+      - name: Build Rust Binary
+        run: |
+          cd desktop
+          cargo build --release
+        
       - name: Prepare Linux Client Package
         run: |
           # Create a staging directory
           mkdir -p package/audiosource-linux
           
-          # Copy all necessary files and directories
-          cp -r desktop package/audiosource-linux/
+          # Copy all necessary files
+          cp desktop/target/release/desktop-rs package/audiosource-linux/audiosource
+          chmod +x package/audiosource-linux/audiosource
           cp -r assets package/audiosource-linux/
           cp install.sh package/audiosource-linux/
           cp install-void.sh package/audiosource-linux/
-          
-          # Create standalone executable at the root of the tarball
-          cp desktop/launcher.sh package/audiosource-linux/audiosource
-          chmod +x package/audiosource-linux/audiosource
           
           # Create the tarball
           cd package
